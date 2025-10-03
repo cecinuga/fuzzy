@@ -272,6 +272,7 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 ### To-Do List
 
 - [ ] Add support for custom HTTP headers
+- [ ] Add support for PUT and DELETE methods
 - [ ] Implement request rate limiting
 - [ ] Add XML body support for SOAP APIs  
 - [ ] Include response time measurements
@@ -289,56 +290,6 @@ This project is open source. Please check the license file for details.
 ## Disclaimer
 
 This tool is for educational and authorized testing purposes only. Always ensure you have proper permission before testing any systems. The authors are not responsible for any misuse of this tool.
-
-## Fuzzing strategies and mutators
-
-Fuzzy includes standard mutators:
-
-* `flip_bits` (flip random bits)
-* `byte_insert` / `byte_remove` / `byte_replace`
-* `splice` (combine two corpus inputs)
-* dictionary-based expansions (use provided keywords)
-* length scaling (grow/shrink inputs)
-
-Selection strategies:
-
-* Random
-* Coverage-guided (if enabled and the target provides coverage hooks)
-* Corpus-priority (favors inputs that improved coverage)
-
-For coverage-guided fuzzing: the target must expose an endpoint or hook (e.g., callback) that returns a coverage bitmap or ID.
-
----
-
-## Logging, crash triage and reproduction
-
-* Crashes are written to `crashes/` with metadata files (`.meta.json`) containing:
-
-  * timestamp
-  * seed
-  * mutator pipeline
-  * stack trace (if available)
-  * target stdout/stderr
-
-* Reproduction: `Fuzzy reproduce --input=crashes/crash-0001` runs the target with that input and prints output and exit code.
-
-* Minimization: a `minimize` command attempts to shrink the input while preserving the crash.
-
-Example:
-
-```bash
-./Fuzzy minimize --input=crashes/crash-0001 --harness=./examples/unit_target
-```
-
----
-
-## Metrics and monitoring
-
-Fuzzy exports basic metrics (tests/sec, total crashes, corpus size) to:
-
-* stdout (human-readable)
-* a JSON file `metrics.json`
-* optionally a Prometheus Pushgateway (configurable)
 
 ---
 
