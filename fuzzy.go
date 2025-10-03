@@ -27,11 +27,11 @@ func main() {
 	flag.StringVar(&fieldsFlag, "fp", "", "[#] File with values to fuzz")
 
 	flag.Parse()
-	
+
 	fuzz()
 }
 
-func fuzz(){
+func fuzz() {
 	client := &http.Client{}
 	fieldValuesFilename := filepath.Base(fieldsFlag)
 	keyToValorize := strings.Replace(fieldValuesFilename, ".txt", "", 1)
