@@ -236,21 +236,31 @@ This fuzzer is particularly useful for:
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
 
-### To-Do List
+### To-Do Functionality List
 
 - [ ] Add support for custom HTTP headers
 - [ ] Add support for PUT and DELETE methods
 - [ ] Add support for HTTP authentication methods
-- [ ] Add XML body support for SOAP APIs  
-- [ ] Add concurrency support for faster testing
+- [ ] Add support for XML body for SOAP APIs  
+- [ ] Add support for more response formats (e.g., XML, HTML)
 - [ ] Add more detailed logging options
+- [ ] Add more functionality (e.g., SQLi, XSS, LFI payloads, path traversal)
 
-- [ ] Implement request rate limiting
 - [ ] Implement result export to CSV/JSON formats
+
+### To-Do Improvement List
 
 - [ ] Include response time measurements
 - [ ] Improve error handling and retries
-- [ ] Add more mutators (e.g., SQLi, XSS, LFI payloads, path traversal)
+- [ ] Generalize and modularize code for easier extension
+- [ ] Implement request rate limiting
+- [ ] Implement concurrency support for faster testing
+
+### To-Do Testing List
+- [ ] Add unit tests for core functionality
+- [ ] Add integration tests with mock servers
+- [ ] Test with various APIs and endpoints
+
 
 ---
 
