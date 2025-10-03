@@ -220,39 +220,6 @@ This fuzzer is particularly useful for:
 - **Rate Limiting**: Test API rate limiting mechanisms
 - **Input Sanitization**: Check if the API properly sanitizes user input
 
-### Common Test Scenarios
-
-**SQL Injection Testing**:
-```
-' OR 1=1--
-'; DROP TABLE users;--
-admin'--
-' UNION SELECT * FROM users--
-```
-
-**XSS Testing**:
-```
-<script>alert('xss')</script>
-<img src=x onerror=alert(1)>
-javascript:alert(1)
-```
-
-**Path Traversal Testing**:
-```
-../../../etc/passwd
-..\..\..\..\windows\system32\config\sam
-/etc/shadow
-```
-
-**Authentication Bypass**:
-```
-admin
-administrator
-root
-test
-guest
-```
-
 ---
 
 ## Best Practices
@@ -273,11 +240,17 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 
 - [ ] Add support for custom HTTP headers
 - [ ] Add support for PUT and DELETE methods
-- [ ] Implement request rate limiting
-- [ ] Add XML body support for SOAP APIs  
-- [ ] Include response time measurements
 - [ ] Add support for HTTP authentication methods
+- [ ] Add XML body support for SOAP APIs  
+- [ ] Add concurrency support for faster testing
+- [ ] Add more detailed logging options
+
+- [ ] Implement request rate limiting
 - [ ] Implement result export to CSV/JSON formats
+
+- [ ] Include response time measurements
+- [ ] Improve error handling and retries
+- [ ] Add more mutators (e.g., SQLi, XSS, LFI payloads, path traversal)
 
 ---
 
