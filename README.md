@@ -1,4 +1,4 @@
-# 🦄 Fuzzy 🐉 - HTTP API Fuzzer
+# 🦄 Fuzzy - HTTP API Fuzzer 🦄
 
 > **Fuzzy** — A simple shiny HTTP API fuzzing tool written in **Go** (Golang).
 > Designed to test HTTP endpoints by fuzzing request parameters and JSON body fields with different values.
