@@ -1,4 +1,4 @@
-# Fuzzy - HTTP API Fuzzer
+# 🦄 Fuzzy 🐉 - HTTP API Fuzzer
 
 > **Fuzzy** — A simple shiny HTTP API fuzzing tool written in **Go** (Golang).
 > Designed to test HTTP endpoints by fuzzing request parameters and JSON body fields with different values.
@@ -10,7 +10,7 @@
 Fuzzy is shy, a little anxious when he is among many people, but he works hard because he loves his job.
 He is always eager to learn new things and improve his skills, even if it means stepping out of his comfort zone.
 
-## Table of Contents
+## Table of Contents 🦆
 
 * [Description](#description)
 * [Key Features](#key-features)
@@ -23,7 +23,7 @@ He is always eager to learn new things and improve his skills, even if it means 
 
 ---
 
-## Description
+## Description 🦑
 
 Fuzzy is a newbie-friendly command-line HTTP API fuzzer that allows you to test web endpoints by systematically varying input parameters. It supports both GET and POST requests and can fuzz URL parameters for GET requests or JSON body fields for POST requests.
 
@@ -31,7 +31,7 @@ The tool reads values from a text file and iterates through them, making HTTP re
 
 ---
 
-## Key Features
+## Key Features 🐞
 
 * **GET Request Fuzzing**: Append different values to URL endpoints
 * **POST Request Fuzzing**: Replace JSON body fields with different test values
@@ -42,7 +42,7 @@ The tool reads values from a text file and iterates through them, making HTTP re
 
 ---
 
-## Requirements
+## Requirements 🐿️
 
 * Go 1.20+ (1.21+ recommended)
 * OS: Linux/macOS/Windows (Linux recommended for heavy testing)
@@ -50,7 +50,7 @@ The tool reads values from a text file and iterates through them, making HTTP re
 
 ---
 
-## Installation
+## Installation 🐝
 
 1. **Prerequisites**: Go 1.19 or higher
 
@@ -68,17 +68,17 @@ go build fuzzy.go
 
 ---
 
-## Usage
+## Usage 🦥
 
 The fuzzer supports two HTTP methods: GET and POST. The tool automatically determines which field to fuzz based on the filename of the values file (without .txt extension).
 
-### Basic Syntax
+### Basic Syntax 🦩
 
 ```bash
 ./fuzzy -m <METHOD> -e <ENDPOINT> -fp <VALUES_FILE> [OPTIONS]
 ```
 
-### GET Request Fuzzing
+### GET Request Fuzzing 🐠
 
 For GET requests, values are appended directly to the endpoint URL:
 
@@ -91,7 +91,7 @@ This will test URLs like:
 - `https://api.example.com/users/admin`
 - `https://api.example.com/users/test`
 
-### POST Request Fuzzing
+### POST Request Fuzzing 🦊
 
 For POST requests, you need to provide a JSON body template and specify which field to fuzz:
 
@@ -106,7 +106,7 @@ The tool will replace the field named `passwords` (derived from `passwords.txt`)
 
 ## Examples
 
-### Example 1: Testing User ID Endpoints
+### Example 1: Testing User ID Endpoints 🐻
 
 **Values file** (`user_ids.txt`):
 ```
@@ -135,7 +135,7 @@ root
 [+] Response status: 403 Forbidden
 ```
 
-### Example 2: Testing Login Endpoints
+### Example 2: Testing Login Endpoints 🐮
 
 **JSON body template** (`req/body.json`):
 ```json
@@ -174,7 +174,7 @@ letmein
 
 ---
 
-## File Structure
+## File Structure 🦢
 
 ```
 fuzzy/
@@ -191,7 +191,7 @@ fuzzy/
 
 ---
 
-## Command Line Options
+## Command Line Options 🐊
 
 | Flag | Description | Example |
 |------|-------------|---------|
@@ -200,7 +200,7 @@ fuzzy/
 | `-bp` | Body file path (required for POST) | `-bp req/body.json` |
 | `-fp` | Values file path (required) | `-fp passwords.txt` |
 
-### Important Notes
+### Important Notes 🦖
 
 - **API Key**: The tool includes X-API-KEY header support. Set the `apiKey` variable in the code if needed.
 - **Field Mapping**: For POST requests, the field name is derived from the values filename (without .txt extension).
@@ -209,7 +209,7 @@ fuzzy/
 
 ---
 
-## Use Cases
+## Use Cases 🦀
 
 This fuzzer is particularly useful for:
 
@@ -222,7 +222,7 @@ This fuzzer is particularly useful for:
 
 ---
 
-## Best Practices
+## Best Practices 🦋
 
 1. **Start Small**: Begin with a small set of test values and expand gradually
 2. **Monitor Responses**: Pay attention to different HTTP status codes (200, 401, 403, 500)
@@ -231,10 +231,20 @@ This fuzzer is particularly useful for:
 5. **Log Analysis**: Enable response body logging to analyze detailed error messages
 
 ---
-
-## Contributing
+## Contributing 🐜
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+1. Fork the repo
+2. Create a branch `feature/xxx`
+3. Add tests for new features
+4. Open a PR with description and use case
+
+Guidelines:
+
+* Maintain CLI backward compatibility when possible
+* Add unit tests for new mutators
+* Document new flags in `docs/` and `configs/`
 
 🔴 high impact features or improvements or bug fixes should be prioritized.
 🟠 medium-high general improvements to code quality, usability, performance and testing.
@@ -242,7 +252,7 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 🟢 low urgency features, minor tweaks, documentation updates.
 🔵 funny little things.
 
-### To-Do Functionality List
+### To-Do Functionality List 🦞
 
 - [🔴] Add support for custom HTTP headers
 - [🔴] Add support for PUT and DELETE methods
@@ -255,7 +265,7 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 - [🟢] Add file logger
 
 
-### To-Do Improvement List
+### To-Do Improvement List 🐍
 
 - [🔴] Implement concurrency support for faster testing
 - [🔴] Improve error handling 
@@ -264,7 +274,7 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 - [🟠] Generalize and modularize code for easier extension
 - [🟠] Implement request rate limiting
 
-### To-Do Testing List
+### To-Do Testing List 🦅
 
 - [🟠] Add unit tests for core functionality
 - [🟠] Add integration tests with mock servers
@@ -272,19 +282,19 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 
 ---
 
-## License
+## License 🐮
 
 This project is open source. Please check the license file for details.
 
 ---
 
-## Disclaimer
+## Disclaimer 🐰
 
 This tool is for educational and authorized testing purposes only. Always ensure you have proper permission before testing any systems. The authors are not responsible for any misuse of this tool.
 
 ---
 
-## Best practices and security
+## Best practices and security 🐶
 
 * Run fuzzing in isolated environments (containers, VMs) to avoid harming real systems.
 * Set resource limits (CPU, memory) for the target.
@@ -293,16 +303,3 @@ This tool is for educational and authorized testing purposes only. Always ensure
 * Use real-world corpus inputs (telemetry/customer data) to improve effectiveness — anonymize sensitive data first.
 
 ---
-
-## Contributing
-
-1. Fork the repo
-2. Create a branch `feature/xxx`
-3. Add tests for new features
-4. Open a PR with description and use case
-
-Guidelines:
-
-* Maintain CLI backward compatibility when possible
-* Add unit tests for new mutators
-* Document new flags in `docs/` and `configs/`
