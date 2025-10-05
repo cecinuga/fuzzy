@@ -199,6 +199,7 @@ fuzzy/
 | `-e` | Target endpoint URL | `-e "https://api.example.com/login"` |
 | `-bp` | Body file path (required for POST) | `-bp req/body.json` |
 | `-fp` | Values file path (required) | `-fp passwords.txt` |
+| `-k` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |2
 
 ### Important Notes 🦖
 
@@ -252,6 +253,16 @@ Guidelines:
 - 🟢 low urgency features, minor tweaks, documentation updates.
 - 🔵 funny little things.
 
+## Readmap 🦉
+- 🔴 Check validity of the input flags
+- 🔴 Improve error handling 
+- 🔴 Parametrize request construction
+- 🔴 Implement concurrency support
+- 🟠 Generalize and modularize code for easier extension
+- 🟠 Add unit tests for core functionality
+- 🟡 Implement result export to CSV/JSON formatsI keys)
+
+
 ### To-Do Functionality List 🦞
 
 - 🔴 Add support for custom HTTP headers
@@ -264,9 +275,8 @@ Guidelines:
 - 🟢 Add more functionality (e.g., SQLi, XSS, LFI payloads, path traversal)
 - 🟢 Add file logger
 
-
 ### To-Do Improvement List 🐍
-
+- 🔴 Parametrize request construction for different methods
 - 🔴 Implement concurrency support for faster testing
 - 🔴 Improve error handling 
 - 🔵 Calculate and optimize code complexity
@@ -274,12 +284,16 @@ Guidelines:
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Implement request rate limiting
 
+### To-Do Bug fixes List 🦔
+- 🔴 Check validity of the input flag
+
+
 ### To-Do Testing List 🦅
 
 - 🟠 Add unit tests for core functionality
 - 🟠 Add integration tests with mock servers
-
-
+- 🟢 Implemnt local test server in python
+ 
 ---
 
 ## License 🐮
