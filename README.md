@@ -56,7 +56,7 @@ The tool reads values from a text file and iterates through them, making HTTP re
 
 2. **Clone and build**:
 ```bash
-git clone <repository-url>
+git clone https://github.com/cecinuga/fuzzy.git
 cd fuzzy
 go build -o fuzzy fuzzy.go
 ```
@@ -75,7 +75,7 @@ The fuzzer supports two HTTP methods: GET and POST. The tool automatically deter
 ### Basic Syntax 🦩
 
 ```bash
-./fuzzy -m <METHOD> -e <ENDPOINT> -fp <VALUES_FILE> [OPTIONS]
+./fuzzy -m <METHOD> -e <ENDPOINT> -dict <DICTIONARY_FILE> [OPTIONS]
 ```
 
 ### GET Request Fuzzing 🐠
@@ -83,7 +83,7 @@ The fuzzer supports two HTTP methods: GET and POST. The tool automatically deter
 For GET requests, values are appended directly to the endpoint URL:
 
 ```bash
-./fuzzy -m GET -e "https://api.example.com/users/" -fp user_ids.txt
+./fuzzy -m GET -e "https://api.example.com/users/" -dict user_ids.txt
 ```
 
 This will test URLs like:
@@ -178,15 +178,21 @@ letmein
 
 ```
 fuzzy/
-├── fuzzy.go              # Main fuzzer application
+├── .git/                 # Git repository data
+├── .gitignore           # Git ignore rules
+├── README.md            # This documentation
+├── fuzzy                # Compiled binary (after build)
+├── fuzzy.go             # Main fuzzer application source code
 ├── go.mod               # Go module dependencies
 ├── go.sum               # Go module checksums
-├── README.md            # This documentation
-├── assets/
-│   └── fuzzy.png        # Project logo/image
-└── req/                 # Request templates and test data
-    ├── body.json        # JSON body template for POST requests
-    └── parameters.txt   # Example parameter values file
+├── assets/              # Project assets
+│   ├── fuzzy.png        # Project logo/mascot image
+│   └── fuzzyPersonality.txt # Fuzzy's character description
+├── stuff/               # Request templates and test data
+│   ├── body.json        # JSON body template for POST requests
+│   └── parameters.txt   # Example parameter values file
+└── test/                # Testing utilities
+    └── test-server.py   # Local test server for development
 ```
 
 ---
@@ -198,7 +204,7 @@ fuzzy/
 | `-m` | HTTP method (GET or POST) | `-m POST` |
 | `-e` | Target endpoint URL | `-e "https://api.example.com/login"` |
 | `-bp` | Body file path (required for POST) | `-bp req/body.json` |
-| `-fp` | Values file path (required) | `-fp passwords.txt` |
+| `-dict` | Values file path (required) | `-dict passwords.txt` |
 | `-k` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |2
 
 ### Important Notes 🦖
@@ -255,7 +261,9 @@ Guidelines:
 
 ## Readmap 🦉
 - 🔴 Check validity of the input flags
-- 🔴 Improve error handling 
+- 🔴 Improve error handling
+- 🔴 Add support for GET query parameter fuzzing
+- 🔴 Add support for GET query value fuzzing 
 - 🔴 Parametrize request construction
 - 🔴 Implement concurrency support
 - 🟠 Generalize and modularize code for easier extension
@@ -265,6 +273,8 @@ Guidelines:
 
 ### To-Do Functionality List 🦞
 
+- 🔴 Add support for GET query parameter fuzzing
+- 🔴 Add support for GET query value fuzzing
 - 🔴 Add support for custom HTTP headers
 - 🔴 Add support for PUT and DELETE methods
 - 🟠 Add support for more response formats (e.g., XML, HTML)
