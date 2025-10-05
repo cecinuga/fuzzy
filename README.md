@@ -254,30 +254,30 @@ Guidelines:
 
 ### To-Do Functionality List 🦞
 
-- [🔴] Add support for custom HTTP headers
-- [🔴] Add support for PUT and DELETE methods
-- [🟠] Add support for more response formats (e.g., XML, HTML)
-- [🟡] Add support for more authentication methods (e.g., OAuth, AP
-- [🟡] Implement result export to CSV/JSON formatsI keys)
-- [🟢] Add support for XML body for SOAP APIs  
-- [🟢] Add more detailed logging options
-- [🟢] Add more functionality (e.g., SQLi, XSS, LFI payloads, path traversal)
-- [🟢] Add file logger
+- 🔴 Add support for custom HTTP headers
+- 🔴 Add support for PUT and DELETE methods
+- 🟠 Add support for more response formats (e.g., XML, HTML)
+- 🟡 Add support for more authentication methods (e.g., OAuth, AP
+- 🟡 Implement result export to CSV/JSON formatsI keys)
+- 🟢 Add support for XML body for SOAP APIs  
+- 🟢 Add more detailed logging options
+- 🟢 Add more functionality (e.g., SQLi, XSS, LFI payloads, path traversal)
+- 🟢 Add file logger
 
 
 ### To-Do Improvement List 🐍
 
-- [🔴] Implement concurrency support for faster testing
-- [🔴] Improve error handling 
-- [🔵] Calculate and optimize code complexity
-- [🟠] Include response time measurements
-- [🟠] Generalize and modularize code for easier extension
-- [🟠] Implement request rate limiting
+- 🔴 Implement concurrency support for faster testing
+- 🔴 Improve error handling 
+- 🔵 Calculate and optimize code complexity
+- 🟠 Include response time measurements
+- 🟠 Generalize and modularize code for easier extension
+- 🟠 Implement request rate limiting
 
 ### To-Do Testing List 🦅
 
-- [🟠] Add unit tests for core functionality
-- [🟠] Add integration tests with mock servers
+- 🟠 Add unit tests for core functionality
+- 🟠 Add integration tests with mock servers
 
 
 ---
