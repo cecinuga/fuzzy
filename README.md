@@ -246,11 +246,11 @@ Guidelines:
 * Add unit tests for new mutators
 * Document new flags in `docs/` and `configs/`
 
-🔴 high impact features or improvements or bug fixes should be prioritized.
-🟠 medium-high general improvements to code quality, usability, performance and testing.
-🟡 medium features, improvement or refactoring.
-🟢 low urgency features, minor tweaks, documentation updates.
-🔵 funny little things.
+- 🔴 high impact features or improvements or bug fixes should be prioritized.
+- 🟠 medium-high general improvements to code quality, usability, performance and testing.
+- 🟡 medium features, improvement or refactoring.
+- 🟢 low urgency features, minor tweaks, documentation updates.
+- 🔵 funny little things.
 
 ### To-Do Functionality List 🦞
 
