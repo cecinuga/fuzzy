@@ -236,30 +236,38 @@ This fuzzer is particularly useful for:
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
 
+🔴 high impact features or improvements or bug fixes should be prioritized.
+🟠 medium-high general improvements to code quality, usability, performance and testing.
+🟡 medium features, improvement or refactoring.
+🟢 low urgency features, minor tweaks, documentation updates.
+🔵 funny little things.
+
 ### To-Do Functionality List
 
-- [ ] Add support for custom HTTP headers
-- [ ] Add support for PUT and DELETE methods
-- [ ] Add support for HTTP authentication methods
-- [ ] Add support for XML body for SOAP APIs  
-- [ ] Add support for more response formats (e.g., XML, HTML)
-- [ ] Add more detailed logging options
-- [ ] Add more functionality (e.g., SQLi, XSS, LFI payloads, path traversal)
+- [🔴] Add support for custom HTTP headers
+- [🔴] Add support for PUT and DELETE methods
+- [🟠] Add support for more response formats (e.g., XML, HTML)
+- [🟡] Add support for more authentication methods (e.g., OAuth, AP
+- [🟡] Implement result export to CSV/JSON formatsI keys)
+- [🟢] Add support for XML body for SOAP APIs  
+- [🟢] Add more detailed logging options
+- [🟢] Add more functionality (e.g., SQLi, XSS, LFI payloads, path traversal)
+- [🟢] Add file logger
 
-- [ ] Implement result export to CSV/JSON formats
 
 ### To-Do Improvement List
 
-- [ ] Include response time measurements
-- [ ] Improve error handling and retries
-- [ ] Generalize and modularize code for easier extension
-- [ ] Implement request rate limiting
-- [ ] Implement concurrency support for faster testing
+- [🔴] Implement concurrency support for faster testing
+- [🔴] Improve error handling 
+- [🔵] Calculate and optimize code complexity
+- [🟠] Include response time measurements
+- [🟠] Generalize and modularize code for easier extension
+- [🟠] Implement request rate limiting
 
 ### To-Do Testing List
-- [ ] Add unit tests for core functionality
-- [ ] Add integration tests with mock servers
-- [ ] Test with various APIs and endpoints
+
+- [🟠] Add unit tests for core functionality
+- [🟠] Add integration tests with mock servers
 
 
 ---
