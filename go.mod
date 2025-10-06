@@ -1,3 +1,3 @@
-module auto-caller
+module fuzzy
 
 go 1.25.1

@@ -259,7 +259,7 @@ Guidelines:
 - 🟢 low urgency features, minor tweaks, documentation updates.
 - 🔵 funny little things.
 
-## Readmap 🦉
+## Roadmap 🦉
 - 🔴 Check validity of the input flags
 - 🔴 Improve error handling
 - 🔴 Add support for GET query parameter fuzzing
