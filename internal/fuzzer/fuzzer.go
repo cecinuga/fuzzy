@@ -14,10 +14,13 @@ func Run(cfg *config.Config, client *http.Client) {
 	fuzzKey := strings.Replace(dictName, ".txt", "", 1)
 
 	valuesScanner := bufio.NewScanner(dictFile)
+	bodyMap := make(map[string]any)
+
 	for valuesScanner.Scan() {
 		fuzzValue := valuesScanner.Text()
+		bodyMap[fuzzKey] = fuzzValue
 
-		req := BuildRequest(cfg, fuzzKey, fuzzValue)
+		req := BuildRequest(cfg, bodyMap)
 		res, err := client.Do(req)
 
 		if err != nil {
