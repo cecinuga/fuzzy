@@ -10,22 +10,7 @@ import (
 	"path/filepath"
 )
 
-func CreateBody(key, value string) *bytes.Reader {
-	body := make(map[string]any) 
-	body[key] = value
-
-	bodyBuf, err := json.Marshal(body)
-	if err != nil {
-		log.Fatalf("Error Unmarshalling file: %v", err)
-	}
-	bodyReader := bytes.NewReader(bodyBuf)
-
-	return bodyReader
-}
-
-func UpdateBody(body map[string]any, key, value string) *bytes.Reader {
-	body[key] = value
-
+func parseBody(body map[string]any) *bytes.Reader { 
 	bodyBuf, err := json.Marshal(body)
 	if err != nil {
 		log.Fatalf("Error Unmarshalling file: %v", err)
@@ -47,10 +32,10 @@ func GetDictionary(dictPath string) (name string, file *os.File) {
 	return name, file
 }
 
-func BuildRequest(cfg *config.Config, fuzzKey, fuzzValue string) *http.Request {
-	body := CreateBody(fuzzKey, fuzzValue)
+func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
+	bodyBuf := parseBody(body)
 
-	req, err := http.NewRequest(cfg.Method, cfg.Endpoint, body)
+	req, err := http.NewRequest(cfg.Method, cfg.Endpoint, bodyBuf)
 	if err != nil {
 		log.Fatal(err)
 	}
