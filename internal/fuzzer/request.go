@@ -10,36 +10,30 @@ import (
 	"path/filepath"
 )
 
-func parseBody(body map[string]any) *bytes.Reader { 
+func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
 	bodyBuf, err := json.Marshal(body)
 	if err != nil {
 		log.Fatalf("Error Unmarshalling file: %v", err)
 	}
 	bodyReader := bytes.NewReader(bodyBuf)
 
-	return bodyReader
-}
-
-func GetDictionary(dictPath string) (name string, file *os.File) {
-	name = filepath.Base(dictPath)
-
-	file, err := os.Open(dictPath)
-	if err != nil {
-		log.Fatalf("Error reading values file: %v", err)
-	}
-	defer file.Close()
-
-	return name, file
-}
-
-func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
-	bodyBuf := parseBody(body)
-
-	req, err := http.NewRequest(cfg.Method, cfg.Endpoint, bodyBuf)
+	req, err := http.NewRequest(cfg.Method, cfg.Endpoint, bodyReader)
 	if err != nil {
 		log.Fatal(err)
 	}
 	req.Header.Add("Content-Type", "application/json")
 
 	return req
+}
+
+func GetFile(path string) (name string, file *os.File) {
+	name = filepath.Base(path)
+
+	file, err := os.Open(path)
+	if err != nil {
+		log.Fatalf("Error reading values file: %v", err)
+	}
+	defer file.Close()
+
+	return name, file
 }

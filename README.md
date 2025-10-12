@@ -260,7 +260,7 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
-- 🔴 Check validity of the input flags
+- 🔴 Check validity of the input flags -Add JSON regex-
 - 🔴 Improve error handling
 - 🔴 Add support for GET query parameter fuzzing
 - 🔴 Add support for GET query value fuzzing 

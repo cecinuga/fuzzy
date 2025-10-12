@@ -2,22 +2,34 @@ package fuzzer
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"fuzzy/internal/config"
+	"fuzzy/utils"
 	"log"
 	"net/http"
+	"os"
 	"strings"
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	dictName, dictFile := GetDictionary(cfg.Dictionary)
+	bodyMap := make(map[string]any)
+	if utils.IsPath(cfg.Body){
+		data, err := os.ReadFile(cfg.Body)
+		if err != nil {
+			log.Fatalf("[!] errore lettura body file %v", cfg.Body)
+		}
+		json.Unmarshal(data, &bodyMap)
+	} 
+
+
+	dictName, dictFile := GetFile(cfg.Dictionary)
 	fuzzKey := strings.Replace(dictName, ".txt", "", 1)
 
-	valuesScanner := bufio.NewScanner(dictFile)
-	bodyMap := make(map[string]any)
+	values := bufio.NewScanner(dictFile)
 
-	for valuesScanner.Scan() {
-		fuzzValue := valuesScanner.Text()
+	for values.Scan() {
+		fuzzValue := values.Text()
 		bodyMap[fuzzKey] = fuzzValue
 
 		req := BuildRequest(cfg, bodyMap)
@@ -30,7 +42,7 @@ func Run(cfg *config.Config, client *http.Client) {
 
 		fmt.Printf("[+] Response status: %s\n\n", res.Status)
 	}
-	if err := valuesScanner.Err(); err != nil {
+	if err := values.Err(); err != nil {
 		log.Fatalf("Error scanning value file: %v", err)
 	}
 }
