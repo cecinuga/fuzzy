@@ -24,6 +24,8 @@ func ParseFlags() *Config{
 
 	flag.Parse()
 
+	CheckConfig(config)
+
 	return config
 }
 
