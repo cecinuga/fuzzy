@@ -17,7 +17,7 @@ func Run(cfg *config.Config, client *http.Client) {
 	data := []byte{}
 	var err error
 
-	if utils.IsPath(cfg.Body){
+	if !utils.IsJSON(cfg.Body){
 		data, err = os.ReadFile(cfg.Body)
 		if err != nil {
 			log.Fatalf("[!] %v", err)

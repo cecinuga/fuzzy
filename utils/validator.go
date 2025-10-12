@@ -2,6 +2,7 @@ package utils
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"regexp"
 )
@@ -10,7 +11,7 @@ const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`
 const LOCALHOST_URL_RE = `^(https?:\/\/)?(localhost(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HOST_URL_RE = `^(https?:\/\/)?(([0-9\.]+)(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HTTP_METHOD_RE = `^[POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD]`
-const PATH_RE = `([\/\w \.-]*)*\/?$`
+const PATH_RE = `([\/\w \.-]*)+\/?$`
 const JSON_RE = ``
 
 func match(pattern, source string) bool{
@@ -18,11 +19,7 @@ func match(pattern, source string) bool{
 	if err != nil {
 		log.Fatal(err)
 	}
-	if !re.MatchString(source){
-		return false
-	}
-
-	return true
+	return re.MatchString(source)
 }
 
 func check(pattern, source string){
@@ -37,6 +34,8 @@ func IsPath(path string) bool{
 
 func IsJSON(s string) bool {
 	var js any
+	
+	fmt.Println(json.Unmarshal([]byte(s), &js))
 	return json.Unmarshal([]byte(s), &js) == nil
 }
 

@@ -260,7 +260,7 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
-- 🔴 Check validity of the input flags -Add JSON regex-
+- 🔴 Check validity of the input flags
 - 🔴 Improve error handling
 - 🔴 Add support for GET query parameter fuzzing
 - 🔴 Add support for GET query value fuzzing 
@@ -295,7 +295,7 @@ Guidelines:
 - 🟠 Implement request rate limiting
 
 ### To-Do Bug fixes List 🦔
-- 🔴 Check validity of the input flag
+- 🔴 Fix Path regex when take json strings
 
 
 ### To-Do Testing List 🦅
