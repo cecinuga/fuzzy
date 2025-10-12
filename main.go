@@ -8,6 +8,7 @@ import (
 
 func main(){
 	cfg := config.ParseFlags()
+	
 	client := http.CreateClient(cfg.InsecureConnection)
 
 	fuzzer.Run(cfg, client)

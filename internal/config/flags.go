@@ -1,6 +1,9 @@
 package config
 
-import "flag"
+import (
+	"flag"
+	"fuzzy/utils"
+)
 
 type Config struct {
 	Method string
@@ -22,4 +25,9 @@ func ParseFlags() *Config{
 	flag.Parse()
 
 	return config
+}
+
+func CheckConfig(cfg *Config){
+	utils.CheckUrl(cfg.Endpoint)
+	utils.CheckMethod(cfg.Method)
 }
