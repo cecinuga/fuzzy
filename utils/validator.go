@@ -7,6 +7,8 @@ import (
 )
 
 const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`
+const LOCALHOST_URL_RE = `^(https?:\/\/)?(localhost(:[0-9])?)([\/\w \.-]*)*\/?$`
+const HOST_URL_RE = `^(https?:\/\/)?(([0-9\.]+)(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HTTP_METHOD_RE = `^[POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD]`
 const PATH_RE = `([\/\w \.-]*)*\/?$`
 const JSON_RE = ``
@@ -23,6 +25,12 @@ func match(pattern, source string) bool{
 	return true
 }
 
+func check(pattern, source string){
+	if !match(pattern, source){
+		log.Fatalf("[!] %v not valid", source)
+	}
+}
+
 func IsPath(path string) bool{
 	return match(PATH_RE, path)
 }
@@ -32,14 +40,22 @@ func IsJSON(s string) bool {
 	return json.Unmarshal([]byte(s), &js) == nil
 }
 
-func check(pattern, source string){
-	if !match(pattern, source){
-		log.Fatalf("[!] %v not valid", source)
-	}
+func IsLocalhostUrl(url string) bool {
+	return match(LOCALHOST_URL_RE, url)
+}
+
+func IsHostUrl(url string) bool {
+	return match(HOST_URL_RE, url)
+}
+
+func IsUrl(url string) bool {
+	return match(URL_RE, url)
 }
 
 func CheckUrl(url string){
-	check(URL_RE, url)
+	if !IsUrl(url) && !IsHostUrl(url) && !IsLocalhostUrl(url){
+		log.Fatal("[!] url not valid")
+	}
 }
 
 func CheckMethod(method string){
@@ -48,6 +64,6 @@ func CheckMethod(method string){
 
 func CheckBody(body string){
 	if !IsPath(body) && !IsJSON(body){
-		log.Fatalf("[!] body not valid", body)
+		log.Fatal("[!] body not valid")
 	}
 }

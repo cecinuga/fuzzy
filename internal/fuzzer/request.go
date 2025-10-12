@@ -33,7 +33,6 @@ func GetFile(path string) (name string, file *os.File) {
 	if err != nil {
 		log.Fatalf("Error reading values file: %v", err)
 	}
-	defer file.Close()
 
 	return name, file
 }

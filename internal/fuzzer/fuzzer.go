@@ -14,17 +14,24 @@ import (
 
 func Run(cfg *config.Config, client *http.Client) {
 	bodyMap := make(map[string]any)
-	if utils.IsPath(cfg.Body){
-		data, err := os.ReadFile(cfg.Body)
-		if err != nil {
-			log.Fatalf("[!] errore lettura body file %v", cfg.Body)
-		}
-		json.Unmarshal(data, &bodyMap)
-	} 
+	data := []byte{}
+	var err error
 
+	if utils.IsPath(cfg.Body){
+		data, err = os.ReadFile(cfg.Body)
+		if err != nil {
+			log.Fatalf("[!] %v", err)
+		}
+		
+	} else {
+		data = []byte(cfg.Body)
+	}
+	json.Unmarshal(data, &bodyMap)
 
 	dictName, dictFile := GetFile(cfg.Dictionary)
 	fuzzKey := strings.Replace(dictName, ".txt", "", 1)
+
+	defer dictFile.Close()
 
 	values := bufio.NewScanner(dictFile)
 
