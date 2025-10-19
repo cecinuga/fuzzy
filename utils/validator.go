@@ -5,31 +5,19 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"flag"
 )
 
 const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`
 const LOCALHOST_URL_RE = `^(https?:\/\/)?(localhost(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HOST_URL_RE = `^(https?:\/\/)?(([0-9\.]+)(:[0-9])?)([\/\w \.-]*)*\/?$`
-const HTTP_METHOD_RE = `^[POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD]`
-const PATH_RE = `([\/\w \.-]*)+\/?$`
-const JSON_RE = ``
+const HTTP_METHOD_RE = `^[POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD]&`
+const PATH_RE = `^([\/\w \.-]*)+\/?$`
 
-func match(pattern, source string) bool{
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return re.MatchString(source)
-}
-
-func check(pattern, source string){
-	if !match(pattern, source){
-		log.Fatalf("[!] %v not valid", source)
-	}
-}
+type matcher func (string) bool
 
 func IsPath(path string) bool{
-	return match(PATH_RE, path)
+	return match(path, PATH_RE)
 }
 
 func IsJSON(s string) bool {
@@ -40,29 +28,53 @@ func IsJSON(s string) bool {
 }
 
 func IsLocalhostUrl(url string) bool {
-	return match(LOCALHOST_URL_RE, url)
+	return match(url, LOCALHOST_URL_RE)
 }
 
 func IsHostUrl(url string) bool {
-	return match(HOST_URL_RE, url)
+	return match(url, HOST_URL_RE)
 }
 
 func IsUrl(url string) bool {
-	return match(URL_RE, url)
+	return match(url, URL_RE)
+}
+
+func IsHttpMethod(method string) bool {
+	return match(method, HTTP_METHOD_RE)
 }
 
 func CheckUrl(url string){
-	if !IsUrl(url) && !IsHostUrl(url) && !IsLocalhostUrl(url){
-		log.Fatal("[!] url not valid")
-	}
+	Check("url", url, IsUrl, IsHostUrl, IsLocalhostUrl)
 }
 
 func CheckMethod(method string){
-	check(HTTP_METHOD_RE, method)
+	Check("http method", method, IsHttpMethod)
 }
 
 func CheckBody(body string){
-	if !IsPath(body) && !IsJSON(body){
-		log.Fatal("[!] body not valid")
+	Check("body", body, IsPath, IsJSON)
+}
+
+func Check(name, source string, matchers ...matcher){
+	if !atLeastOne(source, matchers...) {
+		flag.Usage()
+		log.Fatalf("[!] %v not valid: ( %v ). check help manual", name, source)
 	}
+}
+
+func match(source, pattern string) bool{
+	res, err := regexp.MatchString(pattern, source)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return res
+}
+
+func atLeastOne(source string, matchers ...matcher) bool {
+	for _, matcher := range(matchers){
+		if matcher(source){
+			return  true
+		}
+	}
+	return false
 }

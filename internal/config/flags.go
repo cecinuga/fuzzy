@@ -30,7 +30,7 @@ func ParseFlags() *Config{
 }
 
 func CheckConfig(cfg *Config){
-	utils.CheckUrl(cfg.Endpoint)
 	utils.CheckMethod(cfg.Method)
+	utils.CheckUrl(cfg.Endpoint)
 	utils.CheckBody(cfg.Body)
 }

@@ -53,3 +53,7 @@ func Run(cfg *config.Config, client *http.Client) {
 		log.Fatalf("Error scanning value file: %v", err)
 	}
 }
+
+func sendRequest(){
+	
+}
