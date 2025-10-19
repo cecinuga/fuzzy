@@ -8,52 +8,52 @@ import (
 	"fuzzy/utils"
 	"log"
 	"net/http"
-	"os"
 	"strings"
+	"sync"
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	bodyMap := make(map[string]any)
-	data := []byte{}
-	var err error
+	body := make(map[string]any)
 
-	if !utils.IsJSON(cfg.Body){
-		data, err = os.ReadFile(cfg.Body)
-		if err != nil {
-			log.Fatalf("[!] %v", err)
-		}
-		
+	if !utils.IsJson(cfg.Body){
+		utils.LoadJsonFile(cfg.Body, &body)
 	} else {
-		data = []byte(cfg.Body)
+		data := []byte(cfg.Body)
+		json.Unmarshal(data, &body)
 	}
-	json.Unmarshal(data, &bodyMap)
 
-	dictName, dictFile := GetFile(cfg.Dictionary)
-	fuzzKey := strings.Replace(dictName, ".txt", "", 1)
+	dictName, dictFile := utils.GetFile(cfg.Dictionary)
+	key := strings.Replace(dictName, ".txt", "", 1)
 
 	defer dictFile.Close()
 
 	values := bufio.NewScanner(dictFile)
+	responses := make(chan string)
+
+	var wg sync.WaitGroup
 
 	for values.Scan() {
-		fuzzValue := values.Text()
-		bodyMap[fuzzKey] = fuzzValue
+		wg.Add(1)
+		go func(value string){
+			defer wg.Done()
 
-		req := BuildRequest(cfg, bodyMap)
-		res, err := client.Do(req)
+			body[key] = value
+			req := BuildRequest(cfg, body)
 
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer res.Body.Close()
-
-		fmt.Printf("[+] Response status: %s\n\n", res.Status)
+			responses <- SendRequest(client, req)	
+		}(values.Text())
 	}
+
+	go func(){
+		wg.Wait()
+		close(responses)
+	}()
+	
+	for status := range responses{
+		fmt.Printf("[+] Response status: %v\n", status)
+	}
+	
 	if err := values.Err(); err != nil {
 		log.Fatalf("Error scanning value file: %v", err)
 	}
-}
-
-func sendRequest(){
-	
 }

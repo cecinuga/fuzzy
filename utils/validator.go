@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"regexp"
 	"flag"
@@ -11,7 +10,7 @@ import (
 const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`
 const LOCALHOST_URL_RE = `^(https?:\/\/)?(localhost(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HOST_URL_RE = `^(https?:\/\/)?(([0-9\.]+)(:[0-9])?)([\/\w \.-]*)*\/?$`
-const HTTP_METHOD_RE = `^[POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD]&`
+const HTTP_METHOD_RE = `^(POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD)$`
 const PATH_RE = `^([\/\w \.-]*)+\/?$`
 
 type matcher func (string) bool
@@ -20,10 +19,8 @@ func IsPath(path string) bool{
 	return match(path, PATH_RE)
 }
 
-func IsJSON(s string) bool {
+func IsJson(s string) bool {
 	var js any
-	
-	fmt.Println(json.Unmarshal([]byte(s), &js))
 	return json.Unmarshal([]byte(s), &js) == nil
 }
 
@@ -52,7 +49,7 @@ func CheckMethod(method string){
 }
 
 func CheckBody(body string){
-	Check("body", body, IsPath, IsJSON)
+	Check("body", body, IsPath, IsJson)
 }
 
 func Check(name, source string, matchers ...matcher){

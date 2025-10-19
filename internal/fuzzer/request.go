@@ -6,8 +6,6 @@ import (
 	"fuzzy/internal/config"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 )
 
 func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
@@ -26,13 +24,13 @@ func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
 	return req
 }
 
-func GetFile(path string) (name string, file *os.File) {
-	name = filepath.Base(path)
+func SendRequest(client *http.Client, req *http.Request) string {
+	res, err := client.Do(req)
 
-	file, err := os.Open(path)
 	if err != nil {
-		log.Fatalf("Error reading values file: %v", err)
+		log.Fatal(err)
 	}
+	defer res.Body.Close()
 
-	return name, file
+	return res.Status
 }
