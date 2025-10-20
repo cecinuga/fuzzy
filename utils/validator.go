@@ -11,9 +11,15 @@ const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`
 const LOCALHOST_URL_RE = `^(https?:\/\/)?(localhost(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HOST_URL_RE = `^(https?:\/\/)?(([0-9\.]+)(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HTTP_METHOD_RE = `^(POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD)$`
+const HTTP_PARAMETERS_RE = `^(([\w\d&]+)=([\w\d]+))$`
 const PATH_RE = `^([\/\w \.-]*)+\/?$`
+const ALPHABETIC_RE = `^[\w]+$`
 
 type matcher func (string) bool
+
+func IsAlphabetic(word string) bool {
+	return match(word, ALPHABETIC_RE)
+}
 
 func IsPath(path string) bool{
 	return match(path, PATH_RE)
@@ -40,8 +46,16 @@ func IsHttpMethod(method string) bool {
 	return match(method, HTTP_METHOD_RE)
 }
 
+func IsHttpParameters(parameters string) bool{
+	return match(parameters, HTTP_PARAMETERS_RE)
+}
+
 func CheckUrl(url string){
 	Check("url", url, IsUrl, IsHostUrl, IsLocalhostUrl)
+}
+
+func CheckParameters(parameters string){
+	Check("http parameters", parameters, IsHttpParameters)
 }
 
 func CheckMethod(method string){
@@ -50,6 +64,10 @@ func CheckMethod(method string){
 
 func CheckBody(body string){
 	Check("body", body, IsPath, IsJson)
+}
+
+func CheckFuzzKey(word string){
+	Check("fuzz key", word, IsAlphabetic)
 }
 
 func Check(name, source string, matchers ...matcher){

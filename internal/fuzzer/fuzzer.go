@@ -13,9 +13,9 @@ import (
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	body := make(map[string]any)
+	body := make(map[string]any) //DEVI CREARE UNA FUNZIONE CHE INCAPSULA FINO A RIGA .28, DEVE RITORNARE UN RIFERIMENTO
 
-	if !utils.IsJson(cfg.Body){
+	if !utils.IsJson(cfg.Body){ //ALLA CHIAVE IL CUI VALORE È UGUALE A FUZZ KEY, COSI CHE A RIGA .40 VIENE ASSEGNATA A QUEL RIFERIMENTO
 		utils.LoadJsonFile(cfg.Body, &body)
 	} else {
 		data := []byte(cfg.Body)
@@ -49,7 +49,7 @@ func Run(cfg *config.Config, client *http.Client) {
 		close(responses)
 	}()
 	
-	for status := range responses{
+	for status := range responses {
 		fmt.Printf("[+] Response status: %v\n", status)
 	}
 	
