@@ -8,44 +8,47 @@ import (
 	"fuzzy/utils"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	body := make(map[string]any) //DEVI CREARE UNA FUNZIONE CHE INCAPSULA FINO A RIGA .28, DEVE RITORNARE UN RIFERIMENTO
+	body := make(map[string]any) 
 
-	if !utils.IsJson(cfg.Body){ //ALLA CHIAVE IL CUI VALORE È UGUALE A FUZZ KEY, COSI CHE A RIGA .40 VIENE ASSEGNATA A QUEL RIFERIMENTO
+	if !utils.IsJson(cfg.Body){ 
 		utils.LoadJsonFile(cfg.Body, &body)
 	} else {
 		data := []byte(cfg.Body)
 		json.Unmarshal(data, &body)
 	}
 
-	dictName, dictFile := utils.GetFile(cfg.Dictionary)
-	key := strings.Replace(dictName, ".txt", "", 1)
-
+	_, dictFile := utils.GetFile(cfg.Dictionary)
 	defer dictFile.Close()
 
-	values := bufio.NewScanner(dictFile)
+	objToFuzz, fuzzKey := getFuzzValuePointer(&body, cfg.FuzzyKey)
+
 	responses := make(chan string)
 
-	var wg sync.WaitGroup
+	var chGroup sync.WaitGroup
 
+	values := bufio.NewScanner(dictFile)
 	for values.Scan() {
-		wg.Add(1)
+		chGroup.Add(1)
+		value := values.Text()
+		
 		go func(value string){
-			defer wg.Done()
+			defer chGroup.Done()
+			
+			(*objToFuzz)[fuzzKey] = value
 
-			body[key] = value
 			req := BuildRequest(cfg, body)
+			response := SendRequest(client, req)
 
-			responses <- SendRequest(client, req)	
-		}(values.Text())
+			responses <- response
+		}(value)
 	}
 
 	go func(){
-		wg.Wait()
+		chGroup.Wait()
 		close(responses)
 	}()
 	
@@ -56,4 +59,19 @@ func Run(cfg *config.Config, client *http.Client) {
 	if err := values.Err(); err != nil {
 		log.Fatalf("Error scanning value file: %v", err)
 	}
+}
+
+func getFuzzValuePointer(body *map[string]any, fuzzValue string) (*map[string]any, string) {
+	for k, v := range *body{
+		if v == fuzzValue {
+			return body, k
+		}
+
+		childBody, ok := v.(map[string]any)
+
+		if ok {
+			return getFuzzValuePointer(&childBody, fuzzValue)
+		}
+	}
+	return body, ""
 }

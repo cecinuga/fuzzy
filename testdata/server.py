@@ -10,6 +10,7 @@ def echo_body():
     
     # Legge il body ricevuto
     body = request.get_data(as_text=True)
+    print(body)
     
     # Restituisce lo stesso body
     return body, 200, {'Content-Type': 'text/plain'}
