@@ -24,23 +24,47 @@ func Run(cfg *config.Config, client *http.Client) {
 	_, dictFile := utils.GetFile(cfg.Dictionary)
 	defer dictFile.Close()
 
-	objToFuzz, fuzzKey := getFuzzValuePointer(&body, cfg.FuzzyKey)
+	dictScanner := bufio.NewScanner(dictFile)
 
+	toFuzzObj, toFuzzKey := getFuzzValuePointer(&body, cfg.FuzzyKey)
+	toFuzz := (*toFuzzObj)[toFuzzKey].(string)
+
+	spawner(cfg, client, &body, dictScanner, &toFuzz)
+
+}
+
+func getFuzzValuePointer(body *map[string]any, fuzzValue string) (*map[string]any, string) { // GESTIRE GLI ERRORI
+	for k, v := range *body{
+		if v == fuzzValue {
+			return body, k
+		}
+
+		childBody, ok := v.(map[string]any)
+
+		if ok {
+			childToFuzz, childToFuzzKey := getFuzzValuePointer(&childBody, fuzzValue)
+			if len(childToFuzzKey) > 0 && (*childToFuzz)[childToFuzzKey].(string) == fuzzValue {
+				return childToFuzz, childToFuzzKey
+			}
+		}
+	}
+	return body, "" // QUANDO NON TROVI UNA FUZZY KEY LANCIA UN ERRORE
+}
+
+func spawner(cfg *config.Config, client *http.Client, body *map[string]any, scanner *bufio.Scanner, toFuzz *string){
+	var chGroup sync.WaitGroup
 	responses := make(chan string)
 
-	var chGroup sync.WaitGroup
-
-	values := bufio.NewScanner(dictFile)
-	for values.Scan() {
+	for scanner.Scan() {
 		chGroup.Add(1)
-		value := values.Text()
+		value := scanner.Text()
 		
 		go func(value string){
 			defer chGroup.Done()
 			
-			(*objToFuzz)[fuzzKey] = value
+			*toFuzz = value
 
-			req := BuildRequest(cfg, body)
+			req := BuildRequest(cfg, *body)
 			response := SendRequest(client, req)
 
 			responses <- response
@@ -56,22 +80,7 @@ func Run(cfg *config.Config, client *http.Client) {
 		fmt.Printf("[+] Response status: %v\n", status)
 	}
 	
-	if err := values.Err(); err != nil {
+	if err := scanner.Err(); err != nil {
 		log.Fatalf("Error scanning value file: %v", err)
 	}
-}
-
-func getFuzzValuePointer(body *map[string]any, fuzzValue string) (*map[string]any, string) {
-	for k, v := range *body{
-		if v == fuzzValue {
-			return body, k
-		}
-
-		childBody, ok := v.(map[string]any)
-
-		if ok {
-			return getFuzzValuePointer(&childBody, fuzzValue)
-		}
-	}
-	return body, ""
 }
