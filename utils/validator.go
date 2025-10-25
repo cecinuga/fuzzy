@@ -1,10 +1,10 @@
 package utils
 
 import (
-	"log"
-	"flag"
-	"regexp"
 	"encoding/json"
+	"flag"
+	"log"
+	"regexp"
 )
 
 const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`
@@ -14,8 +14,6 @@ const HTTP_METHOD_RE = `^(POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD)$
 const HTTP_PARAMETERS_RE = `^(([\w\d&]+)=([\w\d]+))$`
 const PATH_RE = `^([\/\w \.-]*)+\/?$`
 const ALPHABETIC_RE = `^[\w]+$`
-
-type matcher func (string) bool
 
 func IsAlphabetic(word string) bool {
 	return match(word, ALPHABETIC_RE)
@@ -50,24 +48,12 @@ func IsHttpQueryParameters(parameters string) bool{
 	return match(parameters, HTTP_PARAMETERS_RE)
 }
 
-func CheckUrl(url string){
-	Check("url", url, IsUrl, IsHostUrl, IsLocalhostUrl)
-}
-
-func CheckQueryParameters(parameters string){
-	Check("http query parameters", parameters, IsHttpQueryParameters)
-}
-
-func CheckMethod(method string){
-	Check("http method", method, IsHttpMethod)
-}
-
-func CheckBody(body string){
-	Check("body", body, IsPath, IsJson)
-}
-
-func CheckFuzzKey(word string){
-	Check("fuzz key", word, IsAlphabetic)
+func match(source, pattern string) bool{
+	res, err := regexp.MatchString(pattern, source)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return res
 }
 
 func Check(name, source string, matchers ...matcher){
@@ -75,14 +61,6 @@ func Check(name, source string, matchers ...matcher){
 		flag.Usage()
 		log.Fatalf("[!] %v not valid: ( %v ). check help manual", name, source)
 	}
-}
-
-func match(source, pattern string) bool{
-	res, err := regexp.MatchString(pattern, source)
-	if err != nil {
-		log.Fatal(err)
-	}
-	return res
 }
 
 func atLeastOne(source string, matchers ...matcher) bool {
@@ -93,3 +71,5 @@ func atLeastOne(source string, matchers ...matcher) bool {
 	}
 	return false
 }
+
+type matcher func (string) bool

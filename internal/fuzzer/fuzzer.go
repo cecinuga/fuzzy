@@ -1,25 +1,25 @@
 package fuzzer
 
 import (
-	"log"
-	"fmt"
-	"sync"
 	"bufio"
-	"net/http"
-	"fuzzy/utils"
-	"encoding/json"
+	"fmt"
 	"fuzzy/internal/config"
+	"fuzzy/utils"
+	"log"
+	"net/http"
+	"sync"
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	body := FuzzTarget{}
+	body := config.FuzzTarget{}
 
-	if len(cfg.Body) > 0{
-		body.BuildDataFromJson(cfg.Body)
-		body.BuildPointer(cfg.FuzzyKey)
+	// Controlla se il body è stato fornito
+	if bodyStr := string(cfg.Body.Source.(config.HttpBodyJson)); bodyStr != "" {
+		body.BuildDataFromJson(bodyStr)
+		body.BuildPointer(string(cfg.FuzzyKey))
 	}
 
-	_, dictFile := utils.GetFile(cfg.Dictionary)
+	_, dictFile := utils.GetFile(string(cfg.Dictionary))
 	defer dictFile.Close()
 
 	dictScanner := bufio.NewScanner(dictFile)
@@ -31,7 +31,7 @@ func spawner(
 		cfg *config.Config, 
 		client *http.Client, 
 		scanner *bufio.Scanner, 
-		body FuzzTarget ){
+		body config.FuzzTarget ){
 
 	var chGroup sync.WaitGroup
 	var bodyMutex sync.Mutex
@@ -48,7 +48,7 @@ func spawner(
 			bodyMutex.Lock()
 
 			body.Assign(value)
-			req := BuildRequest(cfg, body.data)
+			req := BuildRequest(cfg, body.Data)
 			
 			bodyMutex.Unlock()
 
@@ -70,51 +70,4 @@ func spawner(
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("Error scanning value file: %v", err)
 	}
-}
-
-
-type FuzzTarget struct {
-	data map[string]any
-
-	target *map[string]any
-	key string
-}
-
-func (obj *FuzzTarget) BuildDataFromJson(object string) {
-	if utils.IsPath(object){ 
-		utils.LoadJsonFile(object, &obj.data)
-	} else {
-		data := []byte(object)
-		json.Unmarshal(data, &obj.data)
-	}
-}
-
-
-func (obj FuzzTarget) GetPointerToValue(root *map[string]any, value string) (*map[string]any, any) { // GESTIRE GLI ERRORI
-	for k, v := range *root{
-		if v == value {
-			return root, k
-		}
-
-		childBody, ok := v.(map[string]any)
-
-		if ok {
-			child, key := obj.GetPointerToValue(&childBody, value)
-			if len(key.(string)) > 0 {
-				return child, key
-			}
-		}
-	}  // QUANDO NON TROVI UNA FUZZY KEY LANCIA UN ERRORE
-	return root, ""
-}
-
-func (obj *FuzzTarget) BuildPointer(value string){
-	child, key := obj.GetPointerToValue(&obj.data, value)
-	
-	obj.target = child
-	obj.key = key.(string)
-}
-
-func (obj *FuzzTarget) Assign(value string){
-	(*obj.target)[obj.key] = value
 }

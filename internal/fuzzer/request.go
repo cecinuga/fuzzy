@@ -1,11 +1,11 @@
 package fuzzer
 
 import (
-	"log"
 	"bytes"
-	"net/http"
 	"encoding/json"
 	"fuzzy/internal/config"
+	"log"
+	"net/http"
 )
 
 func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
@@ -15,7 +15,7 @@ func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
 	}
 	bodyReader := bytes.NewReader(bodyBuf)
 
-	req, err := http.NewRequest(cfg.Method, cfg.Endpoint, bodyReader)
+	req, err := http.NewRequest(string(cfg.Method), string(cfg.Endpoint), bodyReader)
 	if err != nil {
 		log.Fatal(err)
 	}
