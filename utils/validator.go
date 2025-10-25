@@ -1,10 +1,10 @@
 package utils
 
 import (
-	"encoding/json"
 	"log"
-	"regexp"
 	"flag"
+	"regexp"
+	"encoding/json"
 )
 
 const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`

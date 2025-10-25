@@ -1,58 +1,38 @@
 package fuzzer
 
 import (
-	"bufio"
-	"encoding/json"
-	"fmt"
-	"fuzzy/internal/config"
-	"fuzzy/utils"
 	"log"
-	"net/http"
+	"fmt"
 	"sync"
+	"bufio"
+	"net/http"
+	"fuzzy/utils"
+	"encoding/json"
+	"fuzzy/internal/config"
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	body := make(map[string]any) 
-
-	if !utils.IsJson(cfg.Body){ 
-		utils.LoadJsonFile(cfg.Body, &body)
-	} else {
-		data := []byte(cfg.Body)
-		json.Unmarshal(data, &body)
-	}
+	body := PointerMap{}
+	body.BuildDataFromJson(cfg.Body)
+	body.BuildPointer(cfg.FuzzyKey)
 
 	_, dictFile := utils.GetFile(cfg.Dictionary)
 	defer dictFile.Close()
 
 	dictScanner := bufio.NewScanner(dictFile)
 
-	toFuzzObj, toFuzzKey := getFuzzValuePointer(&body, cfg.FuzzyKey)
-	toFuzz := (*toFuzzObj)[toFuzzKey].(string)
-
-	spawner(cfg, client, &body, dictScanner, &toFuzz)
-
+	spawner(cfg, client, dictScanner, body) 
 }
 
-func getFuzzValuePointer(body *map[string]any, fuzzValue string) (*map[string]any, string) { // GESTIRE GLI ERRORI
-	for k, v := range *body{
-		if v == fuzzValue {
-			return body, k
-		}
+func spawner(
+		cfg *config.Config, 
+		client *http.Client, 
+		scanner *bufio.Scanner, 
+		body PointerMap ){
 
-		childBody, ok := v.(map[string]any)
-
-		if ok {
-			childToFuzz, childToFuzzKey := getFuzzValuePointer(&childBody, fuzzValue)
-			if len(childToFuzzKey) > 0 && (*childToFuzz)[childToFuzzKey].(string) == fuzzValue {
-				return childToFuzz, childToFuzzKey
-			}
-		}
-	}
-	return body, "" // QUANDO NON TROVI UNA FUZZY KEY LANCIA UN ERRORE
-}
-
-func spawner(cfg *config.Config, client *http.Client, body *map[string]any, scanner *bufio.Scanner, toFuzz *string){
 	var chGroup sync.WaitGroup
+	var bodyMutex sync.Mutex
+
 	responses := make(chan string)
 
 	for scanner.Scan() {
@@ -62,9 +42,13 @@ func spawner(cfg *config.Config, client *http.Client, body *map[string]any, scan
 		go func(value string){
 			defer chGroup.Done()
 			
-			*toFuzz = value
+			bodyMutex.Lock()
 
-			req := BuildRequest(cfg, *body)
+			body.Assign(value)
+			req := BuildRequest(cfg, body.data)
+			
+			bodyMutex.Unlock()
+
 			response := SendRequest(client, req)
 
 			responses <- response
@@ -83,4 +67,51 @@ func spawner(cfg *config.Config, client *http.Client, body *map[string]any, scan
 	if err := scanner.Err(); err != nil {
 		log.Fatalf("Error scanning value file: %v", err)
 	}
+}
+
+
+type PointerMap struct {
+	data map[string]any
+
+	child *map[string]any
+	key string
+}
+
+func (obj *PointerMap) BuildDataFromJson(object string) {
+	if utils.IsPath(object){ 
+		utils.LoadJsonFile(object, &obj.data)
+	} else {
+		data := []byte(object)
+		json.Unmarshal(data, &obj.data)
+	}
+}
+
+
+func (obj PointerMap) GetPointerToValue(root *map[string]any, value string) (*map[string]any, any) { // GESTIRE GLI ERRORI
+	for k, v := range *root{
+		if v == value {
+			return root, k
+		}
+
+		childBody, ok := v.(map[string]any)
+
+		if ok {
+			child, key := obj.GetPointerToValue(&childBody, value)
+			if len(key.(string)) > 0 {
+				return child, key
+			}
+		}
+	}  // QUANDO NON TROVI UNA FUZZY KEY LANCIA UN ERRORE
+	return root, ""
+}
+
+func (obj *PointerMap) BuildPointer(value string){
+	child, key := obj.GetPointerToValue(&obj.data, value)
+	
+	obj.child = child
+	obj.key = key.(string)
+}
+
+func (obj *PointerMap) Assign(value string){
+	(*obj.child)[obj.key] = value
 }

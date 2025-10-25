@@ -6,7 +6,7 @@ import (
 	"fuzzy/internal/http"
 )
 
-func main(){
+func main() {
 	cfg := config.ParseFlags()
 
 	client := http.CreateClient(cfg.InsecureConnection)

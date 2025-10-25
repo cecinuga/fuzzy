@@ -1,9 +1,9 @@
 package utils
 
 import (
-	"encoding/json"
-	"log"
 	"os"
+	"log"
+	"encoding/json"
 	"path/filepath"
 )
 

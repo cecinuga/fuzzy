@@ -1,11 +1,11 @@
 package fuzzer
 
 import (
+	"log"
 	"bytes"
+	"net/http"
 	"encoding/json"
 	"fuzzy/internal/config"
-	"log"
-	"net/http"
 )
 
 func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
