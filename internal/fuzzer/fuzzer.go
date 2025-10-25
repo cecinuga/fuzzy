@@ -12,9 +12,12 @@ import (
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	body := PointerMap{}
-	body.BuildDataFromJson(cfg.Body)
-	body.BuildPointer(cfg.FuzzyKey)
+	body := FuzzTarget{}
+
+	if len(cfg.Body) > 0{
+		body.BuildDataFromJson(cfg.Body)
+		body.BuildPointer(cfg.FuzzyKey)
+	}
 
 	_, dictFile := utils.GetFile(cfg.Dictionary)
 	defer dictFile.Close()
@@ -28,7 +31,7 @@ func spawner(
 		cfg *config.Config, 
 		client *http.Client, 
 		scanner *bufio.Scanner, 
-		body PointerMap ){
+		body FuzzTarget ){
 
 	var chGroup sync.WaitGroup
 	var bodyMutex sync.Mutex
@@ -70,14 +73,14 @@ func spawner(
 }
 
 
-type PointerMap struct {
+type FuzzTarget struct {
 	data map[string]any
 
-	child *map[string]any
+	target *map[string]any
 	key string
 }
 
-func (obj *PointerMap) BuildDataFromJson(object string) {
+func (obj *FuzzTarget) BuildDataFromJson(object string) {
 	if utils.IsPath(object){ 
 		utils.LoadJsonFile(object, &obj.data)
 	} else {
@@ -87,7 +90,7 @@ func (obj *PointerMap) BuildDataFromJson(object string) {
 }
 
 
-func (obj PointerMap) GetPointerToValue(root *map[string]any, value string) (*map[string]any, any) { // GESTIRE GLI ERRORI
+func (obj FuzzTarget) GetPointerToValue(root *map[string]any, value string) (*map[string]any, any) { // GESTIRE GLI ERRORI
 	for k, v := range *root{
 		if v == value {
 			return root, k
@@ -105,13 +108,13 @@ func (obj PointerMap) GetPointerToValue(root *map[string]any, value string) (*ma
 	return root, ""
 }
 
-func (obj *PointerMap) BuildPointer(value string){
+func (obj *FuzzTarget) BuildPointer(value string){
 	child, key := obj.GetPointerToValue(&obj.data, value)
 	
-	obj.child = child
+	obj.target = child
 	obj.key = key.(string)
 }
 
-func (obj *PointerMap) Assign(value string){
-	(*obj.child)[obj.key] = value
+func (obj *FuzzTarget) Assign(value string){
+	(*obj.target)[obj.key] = value
 }

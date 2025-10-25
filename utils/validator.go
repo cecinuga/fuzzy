@@ -46,7 +46,7 @@ func IsHttpMethod(method string) bool {
 	return match(method, HTTP_METHOD_RE)
 }
 
-func IsHttpParameters(parameters string) bool{
+func IsHttpQueryParameters(parameters string) bool{
 	return match(parameters, HTTP_PARAMETERS_RE)
 }
 
@@ -54,8 +54,8 @@ func CheckUrl(url string){
 	Check("url", url, IsUrl, IsHostUrl, IsLocalhostUrl)
 }
 
-func CheckParameters(parameters string){
-	Check("http parameters", parameters, IsHttpParameters)
+func CheckQueryParameters(parameters string){
+	Check("http query parameters", parameters, IsHttpQueryParameters)
 }
 
 func CheckMethod(method string){

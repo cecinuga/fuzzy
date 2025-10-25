@@ -260,21 +260,17 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
-- 🔴 Check validity of the input flags
 - 🔴 Improve error handling
 - 🔴 Add support for GET query parameter fuzzing
-- 🔴 Add support for GET query value fuzzing 
 - 🔴 Parametrize request construction
-- 🔴 Implement concurrency support
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Add unit tests for core functionality
-- 🟡 Implement result export to CSV/JSON formatsI keys)
+- 🟡 Implement result export to CSV/JSON formatsI keys
 
 
 ### To-Do Functionality List 🦞
 
 - 🔴 Add support for GET query parameter fuzzing
-- 🔴 Add support for GET query value fuzzing
 - 🔴 Add support for custom HTTP headers
 - 🔴 Add support for PUT and DELETE methods
 - 🟠 Add support for more response formats (e.g., XML, HTML)
@@ -286,8 +282,6 @@ Guidelines:
 - 🟢 Add file logger
 
 ### To-Do Improvement List 🐍
-- 🔴 Parametrize request construction for different methods
-- 🔴 Implement concurrency support for faster testing
 - 🔴 Improve error handling 
 - 🔵 Calculate and optimize code complexity
 - 🟠 Include response time measurements
