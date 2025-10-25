@@ -260,6 +260,9 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
+- 🔴 Choose string manipulation vs map marshalling of body and query parameters 
+- - 🔴 Write string manipulation algorithm for dinamicaly change the value in place of FUZZKEY 
+- - 🔴 Compare via stress test string manipulation algo vs map marshalling 
 - 🔴 Improve error handling
 - 🔴 Add support for GET query parameter fuzzing
 - 🔴 Parametrize request construction
@@ -269,7 +272,6 @@ Guidelines:
 
 
 ### To-Do Functionality List 🦞
-
 - 🔴 Add support for GET query parameter fuzzing
 - 🔴 Add support for custom HTTP headers
 - 🔴 Add support for PUT and DELETE methods
