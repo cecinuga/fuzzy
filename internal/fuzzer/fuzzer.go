@@ -2,6 +2,7 @@ package fuzzer
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"fuzzy/internal/config"
 	"fuzzy/utils"
@@ -10,12 +11,53 @@ import (
 	"sync"
 )
 
+type FuzzTarget struct {
+	data map[string]any
+	target *map[string]any
+	key string
+}
+
+func (obj *FuzzTarget) BuildData(source string) {	
+	if utils.IsPath(source){ 
+		utils.LoadJsonFile(source, &obj.data)
+	} else {
+		data := []byte(source)
+		json.Unmarshal(data, &obj.data)
+	}
+}
+func (obj FuzzTarget) GetPointerToValue(root *map[string]any, value string) (*map[string]any, any) { // GESTIRE GLI ERRORI
+	for k, v := range *root{
+		if v == value {
+			return root, k
+		}
+
+		childBody, ok := v.(map[string]any)
+
+		if ok {
+			child, key := obj.GetPointerToValue(&childBody, value)
+			if len(key.(string)) > 0 {
+				return child, key
+			}
+		}
+	}  // QUANDO NON TROVI UNA FUZZY KEY LANCIA UN ERRORE
+	return root, ""
+}
+func (obj *FuzzTarget) BuildPointer(value string){
+	child, key := obj.GetPointerToValue(&obj.data, value)
+	
+	obj.target = child
+	obj.key = key.(string)
+}
+func (obj *FuzzTarget) Assign(value string){
+	(*obj.target)[obj.key] = value
+}
+
 func Run(cfg *config.Config, client *http.Client) {
-	body := config.FuzzTarget{}
+	body := FuzzTarget{}
 
 	// Controlla se il body è stato fornito
-	if bodyStr := string(cfg.Body.Source.(config.HttpBodyJson)); bodyStr != "" {
-		body.BuildDataFromJson(bodyStr)
+	if bodyStr := string(cfg.Body); bodyStr != "" {
+		body.BuildData(bodyStr)
 		body.BuildPointer(string(cfg.FuzzyKey))
 	}
 
@@ -31,7 +73,7 @@ func spawner(
 		cfg *config.Config, 
 		client *http.Client, 
 		scanner *bufio.Scanner, 
-		body config.FuzzTarget ){
+		body FuzzTarget ){
 
 	var chGroup sync.WaitGroup
 	var bodyMutex sync.Mutex
@@ -48,7 +90,7 @@ func spawner(
 			bodyMutex.Lock()
 
 			body.Assign(value)
-			req := BuildRequest(cfg, body.Data)
+			req := BuildRequest(cfg, body.data)
 			
 			bodyMutex.Unlock()
 
