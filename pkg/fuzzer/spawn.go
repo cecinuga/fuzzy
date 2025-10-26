@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"fuzzy/internal/config"
 	"fuzzy/internal/request"
+	"fuzzy/pkg/target"
 	"log"
 	"net/http"
 	"os"
@@ -12,8 +13,8 @@ import (
 )
 
 func Run(cfg *config.Config, client *http.Client) {
-	body := request.FuzzTarget{}
-	queryParams := request.FuzzTarget{}
+	body := target.FuzzTarget{}
+	queryParams := target.FuzzTarget{}
 
 	// Controlla se il body è stato fornito
 	if bodyStr := string(cfg.Body); bodyStr != "" {
@@ -41,7 +42,7 @@ func spawner(
 		cfg *config.Config, 
 		client *http.Client, 
 		scanner *bufio.Scanner, 
-		body request.FuzzTarget, queryParams request.FuzzTarget ){
+		body target.FuzzTarget, queryParams target.FuzzTarget ){
 
 	var chGroup sync.WaitGroup
 	var reqMutex sync.Mutex

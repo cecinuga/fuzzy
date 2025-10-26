@@ -1,6 +1,6 @@
 package config
 
-import "fuzzy/utils"
+import "fuzzy/internal/utils"
 
 type Checkable interface {
 	Check()
