@@ -11,7 +11,7 @@ const URL_RE = `^(https?:\/\/)?([\d\w\.-]+)\.([a-z\.]+)([\/\w \.-]*)*\/?$`
 const LOCALHOST_URL_RE = `^(https?:\/\/)?(localhost(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HOST_URL_RE = `^(https?:\/\/)?(([0-9\.]+)(:[0-9])?)([\/\w \.-]*)*\/?$`
 const HTTP_METHOD_RE = `^(POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD)$`
-const HTTP_PARAMETERS_RE = `^(([\w\d&]+)=([\w\d]+))$`
+const HTTP_QUERY_PARAMETERS_RE = `^([^=&?]+=[^&#]*)(?:&[^=&?]+=[^&#]*)*$`
 const PATH_RE = `^([\/\w \.-]*)+\/?$`
 const ALPHABETIC_RE = `^[\w]+$`
 
@@ -45,11 +45,12 @@ func IsHttpMethod(method string) bool {
 }
 
 func IsHttpQueryParameters(parameters string) bool{
-	return match(parameters, HTTP_PARAMETERS_RE)
+	return match(parameters, HTTP_QUERY_PARAMETERS_RE)
 }
 
 func match(source, pattern string) bool{
 	res, err := regexp.MatchString(pattern, source)
+
 	if err != nil {
 		log.Fatal(err)
 	}

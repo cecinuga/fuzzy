@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"fuzzy/internal/config"
 	"fuzzy/internal/request"
-	"fuzzy/utils"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 )
 
@@ -23,24 +23,29 @@ func Run(cfg *config.Config, client *http.Client) {
 
 	if queryStr := string(cfg.QueryParameters); queryStr != "" {
 		queryParams.BuildData(queryStr)
+		queryParams.BuildPointer(string(cfg.FuzzyKey))
 	}
 
-	_, dictFile := utils.GetFile(string(cfg.Dictionary))
+	dictFile, err := os.Open(string(cfg.Dictionary))
+	if err != nil {
+		log.Fatalf("Error reading values file: %v", err)
+	}
+
 	defer dictFile.Close()
 
 	dictScanner := bufio.NewScanner(dictFile)
 
-	spawner(cfg, client, dictScanner, body) 
+	spawner(cfg, client, dictScanner, body, queryParams) 
 }
 
 func spawner(
 		cfg *config.Config, 
 		client *http.Client, 
 		scanner *bufio.Scanner, 
-		body request.FuzzTarget ){
+		body request.FuzzTarget, queryParams request.FuzzTarget ){
 
 	var chGroup sync.WaitGroup
-	var bodyMutex sync.Mutex
+	var reqMutex sync.Mutex
 
 	responses := make(chan string)
 
@@ -51,13 +56,17 @@ func spawner(
 		go func(value string){
 			defer chGroup.Done()
 			
-			bodyMutex.Lock()
+			reqMutex.Lock()
 
 			body.SetTarget(value)
-			bodyData := body.Get()
-			req := request.BuildRequest(cfg, bodyData)
+			bodyData := body.GetMap()
+
+			queryParams.SetTarget(value)
+			queryData := queryParams.GetMap()
+
+			req := request.BuildRequest(cfg, bodyData, queryData)
 			
-			bodyMutex.Unlock()
+			reqMutex.Unlock()
 
 			response := request.SendRequest(client, req)
 

@@ -9,7 +9,7 @@ func ParseFlags() *Config {
 	methodFlag := flag.String("m", "GET", "[#] HTTP Request Method")
 	endpointFlag := flag.String("e", "", "[#] Endpoint u wanna call")
 	bodyFlag := flag.String("b", "", "[#] HTTP Request Body <'{...}'|/path/body.json>")
-	queryFlag := flag.String("query", "", "[#] HTTP Request QueryParameters <key=value&key1=value1...>")
+	queryFlag := flag.String("q", "", "[#] HTTP Request QueryParameters <key=value&key1=value1...>")
 	insecureFlag := flag.Bool("k", false, "[#] Skip TLS certificate verification (insecure).")
 	dictFlag := flag.String("dict", "", "[#] Dictionary file")
 	keyFlag := flag.String("key", "", "[#] Where fuzzy found that key, replace with dictionary values.")

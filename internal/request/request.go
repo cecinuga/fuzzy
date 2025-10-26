@@ -1,21 +1,24 @@
 package request
 
 import (
-	"bytes"
-	"encoding/json"
 	"fuzzy/internal/config"
+	"fuzzy/utils/query"
+	"fuzzy/utils/json"
 	"log"
 	"net/http"
+	"strings"
 )
 
-func BuildRequest(cfg *config.Config, body map[string]any) *http.Request {
-	bodyBuf, err := json.Marshal(body)
-	if err != nil {
-		log.Fatalf("Error Unmarshalling file: %v", err)
-	}
-	bodyReader := bytes.NewReader(bodyBuf)
+func BuildRequest(cfg *config.Config, body, queryParams map[string]any) *http.Request {
+	var encodedEndpoint string
 
-	req, err := http.NewRequest(string(cfg.Method), string(cfg.Endpoint), bodyReader)
+	encodedQuery := query.Encode(queryParams)
+	encodedEndpoint = strings.Join([]string{string(cfg.Endpoint), encodedQuery}, "")
+
+	bodyReader := json.Marshal(body)
+
+	req, err := http.NewRequest(string(cfg.Method), encodedEndpoint, bodyReader)
+	
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -3,6 +3,9 @@ package request
 import (
 	"encoding/json"
 	"fuzzy/utils"
+	"fuzzy/utils/query"
+	"log"
+	"os"
 )
 
 type FuzzTarget struct {
@@ -11,22 +14,42 @@ type FuzzTarget struct {
 	key string
 }
 
-func (obj *FuzzTarget) Get() map[string]any{
+func (obj *FuzzTarget) Get(key string) any {
+	return obj.data[key]
+}
+
+func (obj *FuzzTarget) Set(key string, val any) {
+	if (obj.data != nil){
+		obj.data[key] = val
+	}
+}
+
+func (obj *FuzzTarget) GetMap() map[string]any {
 	return obj.data
 }
 
 func (obj *FuzzTarget) SetTarget(value string){
-	(*obj.target)[obj.key] = value
+	if obj.target != nil{
+		(*obj.target)[obj.key] = value
+	}
 }
 
 func (obj *FuzzTarget) BuildData(source string) {	
 	if utils.IsHttpQueryParameters(source){
-		//params, ok := url.ParseQuery(source)
-		// SCRIVERE PARSING QUERY
-	} else if utils.IsPath(source){ 
-		utils.LoadJsonFile(source, &obj.data)
+		obj.data = query.ParseQuery(source)
 	} else {
-		data := []byte(source)
+		var data []byte
+		var err error
+
+		if utils.IsPath(source){ 
+			data, err = os.ReadFile(source)
+			if err != nil {
+				log.Fatalf("[!] %v", err)
+			}			
+		} else {
+			data = []byte(source)
+		}
+
 		json.Unmarshal(data, &obj.data)
 	}
 }
@@ -40,7 +63,7 @@ func (obj FuzzTarget) GetPointerToValue(root *map[string]any, value string) (*ma
 
 		if ok {
 			child, key := obj.GetPointerToValue(&childBody, value)
-			if len(key.(string)) > 0 {
+			if keyStr := key.(string); keyStr != "" {
 				return child, key
 			}
 		}

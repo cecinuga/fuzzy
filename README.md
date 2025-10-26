@@ -260,22 +260,21 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
+- 🔴 Rewrite a local flag package 
 - 🔴 Rewrite GetPointerToValue without extra argument
 - 🔴 Choose string manipulation vs map marshalling of body and query parameters 
 - - 🔴 Write string manipulation algorithm for dinamicaly change the value in place of FUZZKEY 
 - - 🔴 Compare via stress test string manipulation algo vs map marshalling 
 - 🔴 Improve error handling
-- 🔴 Add support for GET query parameter fuzzing
-- 🔴 Parametrize request construction
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Add unit tests for core functionality
 - 🟡 Implement result export to CSV/JSON formatsI keys
 
 
 ### To-Do Functionality List 🦞
-- 🔴 Add support for GET query parameter fuzzing
 - 🔴 Add support for custom HTTP headers
 - 🔴 Add support for PUT and DELETE methods
+- 🟠 Add multiple reference to FuzzKey target and dinamicaly change
 - 🟠 Add support for more response formats (e.g., XML, HTML)
 - 🟡 Add support for more authentication methods (e.g., OAuth, AP
 - 🟡 Implement result export to CSV/JSON formatsI keys)
