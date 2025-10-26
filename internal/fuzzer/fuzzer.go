@@ -20,7 +20,6 @@ func Run(cfg *config.Config, client *http.Client) {
 		body.BuildData(bodyStr)
 		body.BuildPointer(string(cfg.FuzzyKey))
 	}
-
 	if queryStr := string(cfg.QueryParameters); queryStr != "" {
 		queryParams.BuildData(queryStr)
 		queryParams.BuildPointer(string(cfg.FuzzyKey))

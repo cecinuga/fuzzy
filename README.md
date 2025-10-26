@@ -260,12 +260,12 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
+- 🔴 Improve error handling
 - 🔴 Rewrite a local flag package 
 - 🔴 Rewrite GetPointerToValue without extra argument
 - 🔴 Choose string manipulation vs map marshalling of body and query parameters 
 - - 🔴 Write string manipulation algorithm for dinamicaly change the value in place of FUZZKEY 
 - - 🔴 Compare via stress test string manipulation algo vs map marshalling 
-- 🔴 Improve error handling
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Add unit tests for core functionality
 - 🟡 Implement result export to CSV/JSON formatsI keys
@@ -273,14 +273,12 @@ Guidelines:
 
 ### To-Do Functionality List 🦞
 - 🔴 Add support for custom HTTP headers
-- 🔴 Add support for PUT and DELETE methods
 - 🟠 Add multiple reference to FuzzKey target and dinamicaly change
 - 🟠 Add support for more response formats (e.g., XML, HTML)
-- 🟡 Add support for more authentication methods (e.g., OAuth, AP
-- 🟡 Implement result export to CSV/JSON formatsI keys)
+- 🟡 Add support for more authentication methods (e.g., OAuth, AP )
+- 🟡 Implement result export to CSV/JSON formats keys
 - 🟢 Add support for XML body for SOAP APIs  
 - 🟢 Add more detailed logging options
-- 🟢 Add more functionality (e.g., SQLi, XSS, LFI payloads, path traversal)
 - 🟢 Add file logger
 
 ### To-Do Improvement List 🐍
@@ -291,7 +289,6 @@ Guidelines:
 - 🟠 Implement request rate limiting
 
 ### To-Do Bug fixes List 🦔
-- 🔴 Fix Path regex when take json strings
 
 
 ### To-Do Testing List 🦅
