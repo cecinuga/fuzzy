@@ -261,7 +261,7 @@ Guidelines:
 
 ## Roadmap 🦉
 - 🔴 Improve error handling
-- 🔴 Rewrite a local flag package 
+- 🔴 Rewrite a local config package 
 - 🔴 Rewrite GetPointerToValue without extra argument
 - 🔴 Choose string manipulation vs map marshalling of body and query parameters 
 - - 🔴 Write string manipulation algorithm for dinamicaly change the value in place of FUZZKEY 
