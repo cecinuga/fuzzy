@@ -260,6 +260,7 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
+- 🔴 Rewrite GetPointerToValue without extra argument
 - 🔴 Choose string manipulation vs map marshalling of body and query parameters 
 - - 🔴 Write string manipulation algorithm for dinamicaly change the value in place of FUZZKEY 
 - - 🔴 Compare via stress test string manipulation algo vs map marshalling 
