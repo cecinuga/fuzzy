@@ -2,8 +2,8 @@ package request
 
 import (
 	"fuzzy/internal/config"
-	"fuzzy/utils/query"
-	"fuzzy/utils/json"
+	"fuzzy/internal/utils/json"
+	"fuzzy/internal/utils/query"
 	"log"
 	"net/http"
 	"strings"
