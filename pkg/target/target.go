@@ -3,7 +3,6 @@ package target
 import (
 	"encoding/json"
 	"fuzzy/internal/utils"
-	"fuzzy/internal/utils/query"
 	"log"
 	"os"
 )
@@ -36,7 +35,7 @@ func (obj *FuzzTarget) SetTarget(value string){
 
 func (obj *FuzzTarget) BuildData(source string) {	
 	if utils.IsHttpQueryParameters(source){
-		obj.data = query.ParseQuery(source)
+		obj.data = utils.ParseQuery(source)
 	} else {
 		var data []byte
 		var err error

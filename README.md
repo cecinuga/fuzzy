@@ -261,11 +261,12 @@ Guidelines:
 
 ## Roadmap 🦉
 - 🔴 Improve error handling
-- 🔴 Rewrite a local config package 
-- 🔴 Rewrite GetPointerToValue without extra argument
+- 🔴 Rewrite a local config package & validation of flags
+- 🔴 Implement json parser for validation
 - 🔴 Choose string manipulation vs map marshalling of body and query parameters 
 - - 🔴 Write string manipulation algorithm for dinamicaly change the value in place of FUZZKEY 
 - - 🔴 Compare via stress test string manipulation algo vs map marshalling 
+- 🟠 Rewrite GetPointerToValue without extra argument
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Add unit tests for core functionality
 - 🟡 Implement result export to CSV/JSON formatsI keys

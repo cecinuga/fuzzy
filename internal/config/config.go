@@ -3,7 +3,7 @@ package config
 import "fuzzy/internal/utils"
 
 type Checkable interface {
-	Check()
+	Check() 
 }
 
 type HttpMethod string

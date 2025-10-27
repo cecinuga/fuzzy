@@ -1,4 +1,4 @@
-package query
+package utils
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ func ParseQuery(query string) map[string]any {
 	return dict
 }
 
-func Encode(data map[string]any) (encoded string) {
+func EncodeQuery(data map[string]any) (encoded string) {
 	if len(data) > 0 {
 		couples := []string{"?"}
 		for key, value := range data {
