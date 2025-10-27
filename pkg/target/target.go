@@ -1,9 +1,9 @@
-package request
+package target
 
 import (
 	"encoding/json"
-	"fuzzy/utils"
-	"fuzzy/utils/query"
+	"fuzzy/internal/utils"
+	"fuzzy/internal/utils/query"
 	"log"
 	"os"
 )
