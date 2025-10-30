@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"fuzzy/internal/config"
 	"fuzzy/internal/request"
+	"fuzzy/internal/client"
 	"fuzzy/pkg/target"
 	"log"
 	"net/http"
@@ -12,7 +13,20 @@ import (
 	"sync"
 )
 
-func Run(cfg *config.Config, client *http.Client) {
+type Fuzzer struct {
+    config *config.Config
+    client *http.Client
+}
+
+func New(cfg *config.Config) *Fuzzer {
+    return &Fuzzer{
+        config: cfg,
+        client: client.CreateClient(cfg.InsecureConnection),
+    }
+}
+
+
+func (f *Fuzzer) Run(cfg *config.Config) {
 	body := target.FuzzTarget{}
 	queryParams := target.FuzzTarget{}
 
@@ -35,14 +49,13 @@ func Run(cfg *config.Config, client *http.Client) {
 
 	dictScanner := bufio.NewScanner(dictFile)
 
-	spawner(cfg, client, dictScanner, body, queryParams) 
+	f.spawner(dictScanner, body, queryParams) 
 }
 
-func spawner(
-		cfg *config.Config, 
-		client *http.Client, 
+func (f *Fuzzer) spawner(
 		scanner *bufio.Scanner, 
-		body target.FuzzTarget, queryParams target.FuzzTarget ){
+		body target.FuzzTarget, 
+		queryParams target.FuzzTarget ){
 
 	var chGroup sync.WaitGroup
 	var reqMutex sync.Mutex
@@ -64,11 +77,11 @@ func spawner(
 			queryParams.SetTarget(value)
 			queryData := queryParams.GetMap()
 
-			req := request.BuildRequest(cfg, bodyData, queryData)
+			req := request.BuildRequest(f.config, bodyData, queryData)
 			
 			reqMutex.Unlock()
 
-			response := request.SendRequest(client, req)
+			response := request.SendRequest(f.client, req)
 
 			responses <- response
 		}(value)

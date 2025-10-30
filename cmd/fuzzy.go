@@ -2,14 +2,13 @@ package main
 
 import (
 	"fuzzy/internal/config"
-	"fuzzy/internal/http"
 	"fuzzy/pkg/fuzzer"
 )
 
 func main() {
-	cfg := config.ParseFlags()
+	cfg := config.CreateConfig()
 
-	client := http.CreateClient(cfg.InsecureConnection)
+	f := fuzzer.New(cfg)
 
-	fuzzer.Run(cfg, client)
+	f.Run(cfg)
 }

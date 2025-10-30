@@ -15,7 +15,7 @@ const HTTP_QUERY_PARAMETERS_RE = `^([^=&?]+=[^&#]*)(?:&[^=&?]+=[^&#]*)*$`
 const PATH_RE = `^([\/\w \.-]*)+\/?$`
 const ALPHABETIC_RE = `^[\w]+$`
 
-type Matcher func (string) bool
+type Matcher[T any] func (T) bool
 
 func IsAlphabetic(word string) bool {
 	return match(word, ALPHABETIC_RE)
@@ -59,14 +59,14 @@ func match(source, pattern string) bool{
 	return res
 }
 
-func Check(name, source string, matchers ...Matcher){
+func Check(name, source string, matchers ...Matcher[string]){
 	if !atLeastOne(source, matchers...) {
 		flag.Usage()
 		log.Fatalf("[!] %v not valid: ( %v ). check help manual", name, source)
 	}
 }
 
-func atLeastOne(source string, matchers ...Matcher) bool {
+func atLeastOne(source string, matchers ...Matcher[string]) bool {
 	for _, matcher := range(matchers){
 		if matcher(source){
 			return  true

@@ -1,47 +1,39 @@
 package config
 
-import "fuzzy/internal/utils"
-
-type Checkable interface {
-	Check() 
-}
-
-type HttpMethod string
-func (m HttpMethod) Check() {
-	utils.Check("http method", string(m), utils.IsHttpMethod)
-}
-
-type HttpQueryParameters string
-func (p HttpQueryParameters) Check(){
-	utils.Check("http query parameters", string(p), utils.IsHttpQueryParameters)
-}
- 
-type HttpBodyJson string
-func (b HttpBodyJson) Check(){
-	utils.Check("body", string(b), utils.IsPath, utils.IsJson)
-}
-
-type URL string
-func (u URL) Check(){
-	utils.Check("url", string(u), utils.IsUrl, utils.IsHostUrl, utils.IsLocalhostUrl)
-}
-
-type FilePath string
-func (p FilePath) Check(){
-	utils.Check("file path", string(p), utils.IsPath)
-}
-
-type Key string
-func (k Key) Check(){
-	utils.Check("fuzz key", string(k), utils.IsAlphabetic)
-}
+import (
+	"fuzzy/internal/utils"
+	"fuzzy/pkg/flaggy"
+)
 
 type Config struct {
-	Endpoint URL
-	Method HttpMethod
-	Body HttpBodyJson
-	QueryParameters HttpQueryParameters
+	Endpoint string
+	Method string
+	Body string
+	QueryParameters string
 	InsecureConnection bool
-	Dictionary FilePath
-	FuzzyKey Key
+	Dictionary string
+	FuzzyKey string
+}
+
+func Init() flaggy.Specs {
+	specs := flaggy.Specs{}
+	
+	specs.String("m", "[#] HTTP Request Method", "GET", utils.IsHttpMethod)
+	specs.String("e", "[#] Endpoint u wanna call", "", utils.IsUrl) 
+	specs.String("b", "[#] HTTP Request Body <'{...}'|/path/body.json>", "", utils.IsJson)
+	specs.String("q", "[#] HTTP Request QueryParameters <key=value&key1=value1...>", "", utils.IsHttpQueryParameters)
+	specs.String("dict", "[#] Dictionary file", "", utils.IsPath)
+	specs.String("key", "[#] Where fuzzy found that key, replace with dictionary values.", "FUZZY", utils.IsAlphabetic)
+	specs.Bool("k", "[#] Skip TLS certificate verification (insecure).", "false", func(b bool) bool { return true })
+	
+	return specs
+}
+
+func CreateConfig() *Config{
+	specs := Init()
+	options := flaggy.Options{}
+	
+	options.ParseFlags(specs)
+
+	return nil
 }
