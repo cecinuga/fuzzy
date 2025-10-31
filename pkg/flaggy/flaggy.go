@@ -8,7 +8,7 @@ import (
 
 type Spec[T any] struct { 
 	usage 		string
-	_default 	string
+	_default 	T
 	validator 	utils.Matcher[T]
 }
 
@@ -23,59 +23,64 @@ func (o *Spec[any]) Validate(obj any){
 	}
 }
 
-type Specs map[string]any
-
-func (o *Specs) String(key, usage, _default string, validator utils.Matcher[string]){
-	spec := Spec[string]{usage, _default, validator}
-	(*o)[key] = spec
-}
-
-func (o *Specs) Bool(key, usage, _default string, validator utils.Matcher[bool]){
-	spec := Spec[bool]{usage, _default, validator}
-	(*o)[key] = spec
-}
-
-// Metodi per recuperare gli spec con type assertion
-func (o *Specs) GetStringSpec(key string) (Spec[string], bool) {
-	if spec, exists := (*o)[key]; exists {
-		if stringSpec, ok := spec.(Spec[string]); ok {
-			return stringSpec, true
-		}
-	}
-	return Spec[string]{}, false
-}
-
-func (o *Specs) GetBoolSpec(key string) (Spec[bool], bool) {
-	if spec, exists := (*o)[key]; exists {
-		if boolSpec, ok := spec.(Spec[bool]); ok {
-			return boolSpec, true
-		}
-	}
-	return Spec[bool]{}, false
-}
-
-func (o *Specs) Manual() {
-	for _, val := range *o {
-		spec := val.(Spec[any])
-
-		fmt.Printf(spec.usage)
-	}	
-}
-
-// Metodo generico per recuperare spec di qualsiasi tipo
-func (o *Specs) GetSpec(key string) (any, bool) {
-	spec, exists := (*o)[key]
-	return spec, exists
-}
-
 type Option[T any] struct {
 	value T
 	spec *Spec[T]
 }
 
+func (o *Option[T]) Value() T {
+	// Usa reflection per controllare se il valore è zero
+	var zero T
+	if any(o.value) != any(zero) {
+		return o.value
+	}
+	return o.spec._default
+}
+
+func (o *Option[T]) Help(){
+	fmt.Println(o.spec.usage)
+}
+
+func (o *Option[T]) validate(){
+	o.spec.Validate(o.value)
+}
+
 type Options map[string]any
 
-func (o Options) ParseFlags(specs Specs){
+func (o *Options) getStringOption(key string) (*Option[string], bool) {
+	if opt, exists := (*o)[key]; exists {
+		if stringOpt, ok := opt.(Option[string]); ok {
+			return &stringOpt, true
+		}
+	}
+	return nil, false
+}
+
+func (o *Options) getBoolOption(key string) (*Option[bool], bool) {
+	if opt, exists := (*o)[key]; exists {
+		if boolOpt, ok := opt.(Option[bool]); ok {
+			return &boolOpt, true
+		}
+	}
+	return nil, false
+}
+
+func (o *Options) String(key, usage, _default string, validator utils.Matcher[string]) (*Option[string], bool){
+	option := Option[string]{spec: &Spec[string]{usage, _default, validator}}
+	(*o)[key] = option	
+
+	return o.getStringOption(key)
+}
+
+func (o *Options) Bool(key, usage string, _default bool, validator utils.Matcher[bool]) (*Option[bool], bool){
+	option := Option[bool]{spec: &Spec[bool]{usage, _default, validator}}
+	(*o)[key] = option	
+
+	return o.getBoolOption(key)
+}
+
+
+func (o Options) ParseFlags(){
 	// TODO: Implementare il parsing degli argomenti da os.Args
 	// Usando gli specs per validare i flag
 }
