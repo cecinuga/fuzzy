@@ -26,21 +26,21 @@ func New(cfg *config.Config) *Fuzzer {
 }
 
 
-func (f *Fuzzer) Run(cfg *config.Config) {
+func (f *Fuzzer) Run() {
 	body := target.FuzzTarget{}
 	queryParams := target.FuzzTarget{}
 
 	// Controlla se il body è stato fornito
-	if bodyStr := string(cfg.Body); bodyStr != "" {
+	if bodyStr := string(f.config.Body); bodyStr != "" {
 		body.BuildData(bodyStr)
-		body.BuildPointer(string(cfg.FuzzyKey))
+		body.BuildPointer(string(f.config.FuzzyKey))
 	}
-	if queryStr := string(cfg.QueryParameters); queryStr != "" {
+	if queryStr := string(f.config.QueryParameters); queryStr != "" {
 		queryParams.BuildData(queryStr)
-		queryParams.BuildPointer(string(cfg.FuzzyKey))
+		queryParams.BuildPointer(string(f.config.FuzzyKey))
 	}
 
-	dictFile, err := os.Open(string(cfg.Dictionary))
+	dictFile, err := os.Open(string(f.config.Dictionary))
 	if err != nil {
 		log.Fatalf("Error reading values file: %v", err)
 	}

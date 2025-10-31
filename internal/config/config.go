@@ -15,53 +15,31 @@ type Config struct {
 	FuzzyKey string
 }
 
-func Init() *Config {
+func CreateConfig() Config{
 	config := Config{}
-	options := flaggy.Options{}
+	flags := make(flaggy.Flags)
 	
-	m, mok := options.String("m", "[#] HTTP Request Method", "GET", utils.IsHttpMethod)
-	if mok {
-		config.Method = m.Value()
-	}
+	// Definisce i flag usando la nuova API
+	method := flags.String("m", "GET", "[#] HTTP Request Method", utils.IsHttpMethod)
+	endpoint := flags.String("e", "", "[#] Endpoint u wanna call", utils.IsUrl)
+	body := flags.String("b", "", "[#] HTTP Request Body <'{...}'|/path/body.json>", utils.IsJson)
+	query := flags.String("q", "", "[#] HTTP Request QueryParameters <key=value&key1=value1...>", utils.IsHttpQueryParameters)
+	dict := flags.String("dict", "", "[#] Dictionary file", utils.IsPath)
+	key := flags.String("key", "FUZZY", "[#] Where fuzzy found that key, replace with dictionary values.", utils.IsAlphabetic)
 	
-	e, eok := options.String("e", "[#] Endpoint u wanna call", "", utils.IsUrl) 
-	if eok {
-		config.Endpoint = e.Value()
-	}
-
-	b, bok := options.String("b", "[#] HTTP Request Body <'{...}'|/path/body.json>", "", utils.IsJson)
-	if bok {
-		config.Body = b.Value()
-	}
-
-	q, qok := options.String("q", "[#] HTTP Request QueryParameters <key=value&key1=value1...>", "", utils.IsHttpQueryParameters)
-	if qok {
-		config.QueryParameters = q.Value()
-	}
-
-	dict, dictOk := options.String("dict", "[#] Dictionary file", "", utils.IsPath)
-	if dictOk {
-		config.Dictionary = dict.Value()
-	}
-
-	key, keyok := options.String("key", "[#] Where fuzzy found that key, replace with dictionary values.", "FUZZY", utils.IsAlphabetic)
-	if keyok {
-		config.FuzzyKey = key.Value()
-	}
+	// TODO: Implementare Bool() in flaggy.go per il flag insecure
+	// k := flags.Bool("k", false, "[#] Skip TLS certificate verification (insecure).")
 	
-	k, kok := options.Bool("k", "[#] Skip TLS certificate verification (insecure).", false, func(b bool) bool { return true })
-	if kok {
-		config.InsecureConnection = k.Value()
-	}
-	
-	return &config
-}
+	// Popola la config con i puntatori ai valori dei flag
+	flags.Parse()
 
-func CreateConfig() *Config{
-	config := Init()
-	options := flaggy.Options{}
+	config.Method = *method
+	config.Endpoint = *endpoint
+	config.Body = *body
+	config.QueryParameters = *query
+	config.Dictionary = *dict
+	config.FuzzyKey = *key
+	config.InsecureConnection = false // TODO: usare il flag Bool quando implementato
 	
-	options.ParseFlags()
-
 	return config
 }

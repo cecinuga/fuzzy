@@ -6,81 +6,192 @@ import (
 	"os"
 )
 
-type Spec[T any] struct { 
+type Value interface {
+	String() 	string
+}
+
+type StringVal string
+
+func (s *StringVal) String() string {
+	return string(*s)
+}
+
+type Flag struct { 
 	usage 		string
-	_default 	T
-	validator 	utils.Matcher[T]
+	val 		Value
+	def 		Value
+	validator 	utils.Matcher
 }
 
-func (o *Spec[any]) Help(){
-	fmt.Println(o.usage)
+type Flags map[string]*Flag
+
+// String definisce un flag string con nome, valore di default e usage.
+// Ritorna un puntatore alla stringa che conterrà il valore del flag.
+func (f *Flags) String(name string, value string, usage string, validator utils.Matcher) *string {
+	p := new(string)
+	f.StringVar(p, name, value, usage, validator)
+	return p
 }
 
-func (o *Spec[any]) Validate(obj any){
-	if !o.validator(obj){
-		o.Help()
-		os.Exit(1)
+// StringVar definisce un flag string con nome, valore di default e usage.
+// L'argomento p punta a una variabile string che memorizza il valore del flag.
+func (f *Flags) StringVar(p *string, name string, value string, usage string, validator utils.Matcher) {
+	if f == nil {
+		panic("Flags map is nil")
 	}
-}
-
-type Option[T any] struct {
-	value T
-	spec *Spec[T]
-}
-
-func (o *Option[T]) Value() T {
-	// Usa reflection per controllare se il valore è zero
-	var zero T
-	if any(o.value) != any(zero) {
-		return o.value
+	
+	// Inizializza la variabile con il valore di default
+	*p = value
+	
+	// Crea il StringVal che wrappa il puntatore
+	val := (*StringVal)(p)
+	def := StringVal(value)
+	
+	// Crea il flag
+	flag := &Flag{
+		usage:     usage,
+		val:       val,
+		def:       &def,
+		validator: validator, // Validator di default che accetta tutto
 	}
-	return o.spec._default
+	
+	// Registra il flag nella mappa
+	(*f)[name] = flag
 }
 
-func (o *Option[T]) Help(){
-	fmt.Println(o.spec.usage)
+// Parse analizza gli argomenti della command line e popola i flag registrati
+func (f *Flags) Parse() {
+	f.ParseArgs(os.Args[1:])
 }
 
-func (o *Option[T]) validate(){
-	o.spec.Validate(o.value)
-}
-
-type Options map[string]any
-
-func (o *Options) getStringOption(key string) (*Option[string], bool) {
-	if opt, exists := (*o)[key]; exists {
-		if stringOpt, ok := opt.(Option[string]); ok {
-			return &stringOpt, true
+// ParseArgs analizza gli argomenti forniti e popola i flag registrati
+func (f *Flags) ParseArgs(args []string) {
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		
+		if !isFlag(arg) {
+			continue
+		}
+		
+		name := arg[1:] // Rimuove il prefisso '-'
+		if len(name) == 0 {
+			continue
+		}
+		
+		// Gestisce '--' prefix
+		if name[0] == '-' {
+			name = name[1:]
+		}
+		
+		flag, exists := (*f)[name]
+		if !exists {
+			continue // Flag non riconosciuto, ignora
+		}
+		
+		// Per flag string, il prossimo argomento è il valore
+		if i+1 < len(args) && !isFlag(args[i+1]) {
+			value := args[i+1]
+			
+			// Valida il valore se c'è un validator
+			if flag.validator != nil && !flag.validator(value) {
+				f.Help()
+				panic("Error Parsing flags")
+			}
+			
+			// Imposta il valore nel flag
+			if stringVal, ok := flag.val.(*StringVal); ok {
+				*stringVal = StringVal(value)
+			}
+			
+			i++ // Salta il valore che abbiamo appena processato
 		}
 	}
-	return nil, false
 }
 
-func (o *Options) getBoolOption(key string) (*Option[bool], bool) {
-	if opt, exists := (*o)[key]; exists {
-		if boolOpt, ok := opt.(Option[bool]); ok {
-			return &boolOpt, true
+// isFlag controlla se una stringa è un flag (inizia con '-' o '--')
+func isFlag(s string) bool {
+	return len(s) > 1 && s[0] == '-'
+}
+
+// Help stampa il manuale di utilizzo con tutti i flag registrati
+func (f *Flags) Help() {
+	if f == nil || len(*f) == 0 {
+		fmt.Println("No flags defined")
+		return
+	}
+
+	fmt.Println("Usage:")
+	
+	// Trova la lunghezza massima dei nomi per allineare l'output
+	maxLen := 0
+	for name := range *f {
+		if len(name) > maxLen {
+			maxLen = len(name)
 		}
 	}
-	return nil, false
+	
+	// Stampa ogni flag con formatting uniforme
+	for name, flag := range *f {
+		if flag == nil {
+			continue
+		}
+		
+		// Determina il valore di default
+		defaultValue := ""
+		if flag.def != nil {
+			defaultValue = flag.def.String()
+		}
+		
+		// Format: -name      usage (default: "value")
+		padding := maxLen - len(name)
+		spaces := ""
+		for i := 0; i < padding+2; i++ {
+			spaces += " "
+		}
+		
+		fmt.Printf("  -%s%s%s", name, spaces, flag.usage)
+		
+		if defaultValue != "" {
+			fmt.Printf(" (default: \"%s\")", defaultValue)
+		}
+		
+		fmt.Println()
+	}
 }
 
-func (o *Options) String(key, usage, _default string, validator utils.Matcher[string]) (*Option[string], bool){
-	option := Option[string]{spec: &Spec[string]{usage, _default, validator}}
-	(*o)[key] = option	
-
-	return o.getStringOption(key)
+// Esempio di utilizzo (simile al package flag standard):
+/*
+func ExampleUsage() {
+	flags := make(Flags)
+	
+	// Definisci i flag
+	endpoint := flags.String("e", "", "API endpoint URL")
+	method := flags.String("m", "GET", "HTTP request method")
+	dict := flags.String("dict", "", "Dictionary file path")
+	
+	var insecure bool
+	flags.BoolVar(&insecure, "k", false, "Skip TLS certificate verification")
+	
+	// Mostra l'help se richiesto
+	if len(os.Args) == 1 || (len(os.Args) == 2 && os.Args[1] == "-h") {
+		flags.Help()
+		return
+	}
+	
+	// Parse degli argomenti
+	flags.Parse()
+	
+	// Uso dei valori
+	fmt.Printf("Endpoint: %s\n", *endpoint)
+	fmt.Printf("Method: %s\n", *method)
+	fmt.Printf("Dictionary: %s\n", *dict)
+	fmt.Printf("Insecure: %v\n", insecure)
 }
 
-func (o *Options) Bool(key, usage string, _default bool, validator utils.Matcher[bool]) (*Option[bool], bool){
-	option := Option[bool]{spec: &Spec[bool]{usage, _default, validator}}
-	(*o)[key] = option	
-
-	return o.getBoolOption(key)
-}
-
-
-func (o Options) ParseFlags(){
-	// TODO: Implementare il parsing degli argomenti da os.Args
-	// Usando gli specs per validare i flag
-}
+// Output esempio del metodo Help():
+// Usage:
+//   -e       API endpoint URL (default: "")
+//   -m       HTTP request method (default: "GET")
+//   -dict    Dictionary file path (default: "")
+//   -k       Skip TLS certificate verification (default: "false")
+*/

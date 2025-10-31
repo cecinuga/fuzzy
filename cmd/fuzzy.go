@@ -6,9 +6,8 @@ import (
 )
 
 func main() {
-	cfg := config.CreateConfig()
+	config := config.CreateConfig()
+	f := fuzzer.New(&config)
 
-	f := fuzzer.New(cfg)
-
-	f.Run(cfg)
+	f.Run()
 }
