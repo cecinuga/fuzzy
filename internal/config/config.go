@@ -21,10 +21,10 @@ func CreateConfig() Config{
 	
 	// Definisce i flag usando la nuova API
 	method := flags.String("m", "GET", "[#] HTTP Request Method", utils.IsHttpMethod)
-	endpoint := flags.String("e", "", "[#] Endpoint u wanna call", utils.IsUrl)
-	body := flags.String("b", "", "[#] HTTP Request Body <'{...}'|/path/body.json>", utils.IsJson)
+	endpoint := flags.String("e", "", "[#] Endpoint u wanna call", utils.ValidateEndpoint)
+	body := flags.String("b", "", "[#] HTTP Request Body <'{...}'|/path/body.json>", utils.ValidateBody)
 	query := flags.String("q", "", "[#] HTTP Request QueryParameters <key=value&key1=value1...>", utils.IsHttpQueryParameters)
-	dict := flags.String("dict", "", "[#] Dictionary file", utils.IsPath)
+	dict := flags.String("dict", "", "[#] Dictionary file", utils.ValidateDict)
 	key := flags.String("key", "FUZZY", "[#] Where fuzzy found that key, replace with dictionary values.", utils.IsAlphabetic)
 	
 	// TODO: Implementare Bool() in flaggy.go per il flag insecure

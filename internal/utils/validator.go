@@ -46,8 +46,20 @@ func IsHttpMethod(method string) bool {
 	return match(method, HTTP_METHOD_RE)
 }
 
-func IsHttpQueryParameters(parameters string) bool{
+func IsHttpQueryParameters(parameters string) bool {
 	return match(parameters, HTTP_QUERY_PARAMETERS_RE)
+}
+
+func ValidateEndpoint(url string) bool {
+	return atLeastOne(url, IsUrl, IsHostUrl, IsLocalhostUrl)
+}
+
+func ValidateBody(body string) bool {
+	return atLeastOne(body, IsJson, IsPath)
+}
+
+func ValidateDict(dict string) bool {
+	return IsPath(dict)
 }
 
 func match(source, pattern string) bool{
