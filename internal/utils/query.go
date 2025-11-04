@@ -1,23 +1,24 @@
-package query
+package utils
 
 import (
 	"fmt"
 	"strings"
 )
 
-func ParseQuery(query string) map[string]any {
+func ParseQuery(query string) (map[string]any, error) {
 	dict := make(map[string]any)
 	for couple := range strings.SplitSeq(query, "&"){
 		key, value, f := strings.Cut(couple, "=")
-		if f {
-			dict[key] = value
+		if !f {
+			return nil, KeyNotFoundError{Key: key, Msg: "Query parsing fallito."}
 		}
+		dict[key] = value
 	}	
 
-	return dict
+	return dict, nil
 }
 
-func Encode(data map[string]any) (encoded string) {
+func EncodeQuery(data map[string]any) (encoded string) {
 	if len(data) > 0 {
 		couples := []string{"?"}
 		for key, value := range data {

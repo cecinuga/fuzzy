@@ -2,8 +2,7 @@ package request
 
 import (
 	"fuzzy/internal/config"
-	"fuzzy/internal/utils/json"
-	"fuzzy/internal/utils/query"
+	"fuzzy/internal/utils"
 	"log"
 	"net/http"
 	"strings"
@@ -12,10 +11,10 @@ import (
 func BuildRequest(cfg *config.Config, body, queryParams map[string]any) *http.Request {
 	var encodedEndpoint string
 
-	encodedQuery := query.Encode(queryParams)
+	encodedQuery := utils.EncodeQuery(queryParams)
 	encodedEndpoint = strings.Join([]string{string(cfg.Endpoint), encodedQuery}, "")
 
-	bodyReader := json.Marshal(body)
+	bodyReader := utils.MarshalJson(body)
 
 	req, err := http.NewRequest(string(cfg.Method), encodedEndpoint, bodyReader)
 	

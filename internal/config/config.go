@@ -1,47 +1,45 @@
 package config
 
-import "fuzzy/internal/utils"
-
-type Checkable interface {
-	Check()
-}
-
-type HttpMethod string
-func (m HttpMethod) Check() {
-	utils.Check("http method", string(m), utils.IsHttpMethod)
-}
-
-type HttpQueryParameters string
-func (p HttpQueryParameters) Check(){
-	utils.Check("http query parameters", string(p), utils.IsHttpQueryParameters)
-}
- 
-type HttpBodyJson string
-func (b HttpBodyJson) Check(){
-	utils.Check("body", string(b), utils.IsPath, utils.IsJson)
-}
-
-type URL string
-func (u URL) Check(){
-	utils.Check("url", string(u), utils.IsUrl, utils.IsHostUrl, utils.IsLocalhostUrl)
-}
-
-type FilePath string
-func (p FilePath) Check(){
-	utils.Check("file path", string(p), utils.IsPath)
-}
-
-type Key string
-func (k Key) Check(){
-	utils.Check("fuzz key", string(k), utils.IsAlphabetic)
-}
+import (
+	"fuzzy/internal/utils"
+	"fuzzy/pkg/flaggy"
+)
 
 type Config struct {
-	Endpoint URL
-	Method HttpMethod
-	Body HttpBodyJson
-	QueryParameters HttpQueryParameters
+	Endpoint string
+	Method string
+	Body string
+	QueryParameters string
 	InsecureConnection bool
-	Dictionary FilePath
-	FuzzyKey Key
+	Dictionary string
+	FuzzyKey string
+}
+
+func CreateConfig() Config{
+	config := Config{}
+	flags := make(flaggy.Flags)
+	
+	// Definisce i flag usando la nuova API
+	method := flags.String("m", "GET", "[#] HTTP Request Method", utils.IsHttpMethod)
+	endpoint := flags.String("e", "", "[#] Endpoint u wanna call", utils.ValidateEndpoint)
+	body := flags.String("b", "", "[#] HTTP Request Body <'{...}'|/path/body.json>", utils.ValidateBody)
+	query := flags.String("q", "", "[#] HTTP Request QueryParameters <key=value&key1=value1...>", utils.IsHttpQueryParameters)
+	dict := flags.String("dict", "", "[#] Dictionary file", utils.ValidateDict)
+	key := flags.String("key", "FUZZY", "[#] Where fuzzy found that key, replace with dictionary values.", utils.IsAlphabetic)
+	
+	// TODO: Implementare Bool() in flaggy.go per il flag insecure
+	// k := flags.Bool("k", false, "[#] Skip TLS certificate verification (insecure).")
+	
+	// Popola la config con i puntatori ai valori dei flag
+	flags.Parse()
+
+	config.Method = *method
+	config.Endpoint = *endpoint
+	config.Body = *body
+	config.QueryParameters = *query
+	config.Dictionary = *dict
+	config.FuzzyKey = *key
+	config.InsecureConnection = false // TODO: usare il flag Bool quando implementato
+	
+	return config
 }

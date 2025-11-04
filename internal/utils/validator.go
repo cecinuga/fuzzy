@@ -15,6 +15,8 @@ const HTTP_QUERY_PARAMETERS_RE = `^([^=&?]+=[^&#]*)(?:&[^=&?]+=[^&#]*)*$`
 const PATH_RE = `^([\/\w \.-]*)+\/?$`
 const ALPHABETIC_RE = `^[\w]+$`
 
+type Matcher func (string) bool
+
 func IsAlphabetic(word string) bool {
 	return match(word, ALPHABETIC_RE)
 }
@@ -44,8 +46,20 @@ func IsHttpMethod(method string) bool {
 	return match(method, HTTP_METHOD_RE)
 }
 
-func IsHttpQueryParameters(parameters string) bool{
+func IsHttpQueryParameters(parameters string) bool {
 	return match(parameters, HTTP_QUERY_PARAMETERS_RE)
+}
+
+func ValidateEndpoint(url string) bool {
+	return atLeastOne(url, IsUrl, IsHostUrl, IsLocalhostUrl)
+}
+
+func ValidateBody(body string) bool {
+	return atLeastOne(body, IsJson, IsPath)
+}
+
+func ValidateDict(dict string) bool {
+	return IsPath(dict)
 }
 
 func match(source, pattern string) bool{
@@ -57,14 +71,14 @@ func match(source, pattern string) bool{
 	return res
 }
 
-func Check(name, source string, matchers ...matcher){
+func Check(name, source string, matchers ...Matcher){
 	if !atLeastOne(source, matchers...) {
 		flag.Usage()
 		log.Fatalf("[!] %v not valid: ( %v ). check help manual", name, source)
 	}
 }
 
-func atLeastOne(source string, matchers ...matcher) bool {
+func atLeastOne(source string, matchers ...Matcher) bool {
 	for _, matcher := range(matchers){
 		if matcher(source){
 			return  true
@@ -72,5 +86,3 @@ func atLeastOne(source string, matchers ...matcher) bool {
 	}
 	return false
 }
-
-type matcher func (string) bool

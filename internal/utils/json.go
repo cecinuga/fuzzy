@@ -1,4 +1,4 @@
-package json
+package utils
 
 import (
 	"bytes"
@@ -6,7 +6,7 @@ import (
 	"log"
 )
 
-func Marshal (data map[string]any) *bytes.Reader {
+func MarshalJson (data map[string]any) *bytes.Reader {
 	bodyBuf, err := json.Marshal(data)
 
 	if err != nil {
