@@ -3,9 +3,9 @@ package fuzzer
 import (
 	"bufio"
 	"fmt"
+	"fuzzy/internal/client"
 	"fuzzy/internal/config"
 	"fuzzy/internal/request"
-	"fuzzy/internal/client"
 	"fuzzy/pkg/target"
 	"log"
 	"net/http"
@@ -31,22 +31,33 @@ func (f *Fuzzer) Run() {
 	queryParams := target.FuzzTarget{}
 
 	// Controlla se il body è stato fornito
-	if bodyStr := string(f.config.Body); bodyStr != "" {
-		body.BuildData(bodyStr)
-		body.BuildPointer(string(f.config.FuzzyKey))
+	if f.config.Body != "" {
+		body.BuildData(f.config.Body)
+		body.BuildPointer(f.config.FuzzyKey)
 	}
-	if queryStr := string(f.config.QueryParameters); queryStr != "" {
-		queryParams.BuildData(queryStr)
-		queryParams.BuildPointer(string(f.config.FuzzyKey))
+	if f.config.QueryParameters != "" {
+		queryParams.BuildData(f.config.QueryParameters)
+		queryParams.BuildPointer(f.config.FuzzyKey)
 	}
 
-	dictFile, err := os.Open(string(f.config.Dictionary))
+	dictFile, err := os.Open(f.config.Dictionary)
 	if err != nil {
 		log.Fatalf("Error reading values file: %v", err)
 	}
-
 	defer dictFile.Close()
 
+	if f.config.LogFile != "" {
+		logFile, err := os.Open(f.config.LogFile)
+		
+		if os.IsNotExist(err) {
+			logFile, err = os.Create(f.config.LogFile)
+		} else if err != nil {
+			log.Fatalf("Error reading values file: %v", err)
+		}
+		defer logFile.Close()
+		os.Stdout = logFile
+	}
+	
 	dictScanner := bufio.NewScanner(dictFile)
 
 	f.spawner(dictScanner, body, queryParams) 
@@ -70,18 +81,25 @@ func (f *Fuzzer) spawner(
 			defer chGroup.Done()
 			
 			reqMutex.Lock()
-
 			body.SetTarget(value)
 			bodyData := body.GetMap()
 
 			queryParams.SetTarget(value)
 			queryData := queryParams.GetMap()
 
-			req := request.BuildRequest(f.config, bodyData, queryData)
-			
+			req, err := request.BuildRequest(f.config, bodyData, queryData)
 			reqMutex.Unlock()
 
-			response := request.SendRequest(f.client, req)
+			if err != nil {
+				responses <- "[!] Error building request." 
+				return
+			}
+
+			response, err := request.SendRequest(f.client, req)
+			if err != nil {
+				responses <- "[!] Error sending request." 
+				return
+			}
 
 			responses <- response
 		}(value)

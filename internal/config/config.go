@@ -6,13 +6,14 @@ import (
 )
 
 type Config struct {
-	Endpoint string
-	Method string
-	Body string
-	QueryParameters string
-	InsecureConnection bool
-	Dictionary string
-	FuzzyKey string
+	Endpoint 			string
+	Method 				string
+	Body 				string
+	QueryParameters 	string
+	Dictionary 			string
+	LogFile 			string
+	FuzzyKey 			string
+	InsecureConnection  bool
 }
 
 func CreateConfig() Config{
@@ -20,12 +21,13 @@ func CreateConfig() Config{
 	flags := make(flaggy.Flags)
 	
 	// Definisce i flag usando la nuova API
-	method := flags.String("m", "GET", "[#] HTTP Request Method", utils.IsHttpMethod)
-	endpoint := flags.String("e", "", "[#] Endpoint u wanna call", utils.ValidateEndpoint)
-	body := flags.String("b", "", "[#] HTTP Request Body <'{...}'|/path/body.json>", utils.ValidateBody)
-	query := flags.String("q", "", "[#] HTTP Request QueryParameters <key=value&key1=value1...>", utils.IsHttpQueryParameters)
-	dict := flags.String("dict", "", "[#] Dictionary file", utils.ValidateDict)
-	key := flags.String("key", "FUZZY", "[#] Where fuzzy found that key, replace with dictionary values.", utils.IsAlphabetic)
+	method := flags.String("m", "GET", "[#] HTTP req method.", utils.IsHttpMethod)
+	endpoint := flags.String("e", "", "[#] Endpoint u wanna call.", utils.ValidateEndpoint)
+	body := flags.String("b", "", "[#] HTTP req body <'{...}'|/path/body.json>", utils.ValidateBody)
+	query := flags.String("q", "", "[#] HTTP req query params <key=value&key1=value1...>", utils.IsHttpQueryParameters)
+	dict := flags.String("dict", "", "[#] Dictionary file.", utils.ValidateDict)
+	key := flags.String("key", "FUZZY", "[#] Replace key with dict values.", utils.IsAlphabetic)
+	out := flags.String("o", "", "[#] Redirect stdout, if doesn't exist, will created.", utils.IsPath)
 	
 	// TODO: Implementare Bool() in flaggy.go per il flag insecure
 	// k := flags.Bool("k", false, "[#] Skip TLS certificate verification (insecure).")
@@ -38,8 +40,9 @@ func CreateConfig() Config{
 	config.Body = *body
 	config.QueryParameters = *query
 	config.Dictionary = *dict
+	config.LogFile = *out
 	config.FuzzyKey = *key
-	config.InsecureConnection = false // TODO: usare il flag Bool quando implementato
+	config.InsecureConnection = false 
 	
 	return config
 }

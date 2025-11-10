@@ -266,12 +266,15 @@ Guidelines:
 
 
 ### To-Do Functionality List 🦞
+- 🔴 Improve verbosity, adding -v -vv -vvv for levels
+- 🔴 Implement optional and mandatory flag
 - 🔴 Add support for custom HTTP headers
+- 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension
 - 🟠 Add support for more response formats (e.g., XML, HTML)
+- 🟡 Implement insecure key
 - 🟡 Add support for more authentication methods (e.g., OAuth, AP )
 - 🟡 Implement result export to CSV/JSON formats keys
 - 🟢 Add support for XML body for SOAP APIs  
-- 🟢 Add more detailed logging options
 - 🟢 Add file logger
 
 ### To-Do Improvement List 🐍
