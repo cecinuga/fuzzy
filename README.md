@@ -260,13 +260,6 @@ Guidelines:
 - 🔵 funny little things.
 
 ## Roadmap 🦉
-- 🔴 Improve error handling
-- 🔴 Rewrite a local config package & validation of flags
-- 🔴 Implement json parser for validation
-- 🔴 Choose string manipulation vs map marshalling of body and query parameters 
-- - 🔴 Write string manipulation algorithm for dinamicaly change the value in place of FUZZKEY 
-- - 🔴 Compare via stress test string manipulation algo vs map marshalling 
-- 🟠 Rewrite GetPointerToValue without extra argument
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Add unit tests for core functionality
 - 🟡 Implement result export to CSV/JSON formatsI keys
@@ -274,7 +267,6 @@ Guidelines:
 
 ### To-Do Functionality List 🦞
 - 🔴 Add support for custom HTTP headers
-- 🟠 Add multiple reference to FuzzKey target and dinamicaly change
 - 🟠 Add support for more response formats (e.g., XML, HTML)
 - 🟡 Add support for more authentication methods (e.g., OAuth, AP )
 - 🟡 Implement result export to CSV/JSON formats keys
@@ -283,7 +275,6 @@ Guidelines:
 - 🟢 Add file logger
 
 ### To-Do Improvement List 🐍
-- 🔴 Improve error handling 
 - 🔵 Calculate and optimize code complexity
 - 🟠 Include response time measurements
 - 🟠 Generalize and modularize code for easier extension
@@ -293,7 +284,6 @@ Guidelines:
 
 
 ### To-Do Testing List 🦅
-
 - 🟠 Add unit tests for core functionality
 - 🟠 Add integration tests with mock servers
 - 🟢 Implemnt local test server in python
