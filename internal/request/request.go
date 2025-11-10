@@ -1,14 +1,14 @@
 package request
 
 import (
+	"fmt"
 	"fuzzy/internal/config"
 	"fuzzy/internal/utils"
-	"log"
 	"net/http"
 	"strings"
 )
 
-func BuildRequest(cfg *config.Config, body, queryParams map[string]any) *http.Request {
+func BuildRequest(cfg *config.Config, body, queryParams map[string]any) (*http.Request, error) {
 	var encodedEndpoint string
 
 	encodedQuery := utils.EncodeQuery(queryParams)
@@ -19,20 +19,20 @@ func BuildRequest(cfg *config.Config, body, queryParams map[string]any) *http.Re
 	req, err := http.NewRequest(string(cfg.Method), encodedEndpoint, bodyReader)
 	
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("Error creating http client.")
 	}
 	req.Header.Add("Content-Type", "application/json")
 
-	return req
+	return req, nil
 }
 
-func SendRequest(client *http.Client, req *http.Request) string {
+func SendRequest(client *http.Client, req *http.Request) (string, error) {
 	res, err := client.Do(req)
 
 	if err != nil {
-		log.Fatal(err)
+		return "", fmt.Errorf("Request not send! %v", req.URL)
 	}
 	defer res.Body.Close()
 
-	return res.Status
+	return res.Status, nil
 }

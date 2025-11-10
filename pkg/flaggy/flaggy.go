@@ -29,34 +29,92 @@ type Flags map[string]*Flag
 // Ritorna un puntatore alla stringa che conterrà il valore del flag.
 func (f *Flags) String(name string, value string, usage string, validator utils.Matcher) *string {
 	p := new(string)
-	f.StringVar(p, name, value, usage, validator)
+	// Keep backward-compatible: use StringVar which currently does not return error
+	// but prefer the error-aware variant internally when possible.
+	_ = f.StringVarE(p, name, value, usage, validator)
 	return p
 }
 
 // StringVar definisce un flag string con nome, valore di default e usage.
 // L'argomento p punta a una variabile string che memorizza il valore del flag.
 func (f *Flags) StringVar(p *string, name string, value string, usage string, validator utils.Matcher) {
-	if f == nil {
-		panic("Flags map is nil")
+	// Backwards-compatible wrapper: call error-aware variant and abort on error
+	if err := f.StringVarE(p, name, value, usage, validator); err != nil {
+		fmt.Fprintln(os.Stderr, "flag registration error:", err)
+		os.Exit(2)
 	}
-	
+}
+
+// StringVarE is the error-returning variant of StringVar.
+func (f *Flags) StringVarE(p *string, name string, value string, usage string, validator utils.Matcher) error {
+	if f == nil {
+		return fmt.Errorf("flags map is nil")
+	}
+
 	// Inizializza la variabile con il valore di default
 	*p = value
-	
+
 	// Crea il StringVal che wrappa il puntatore
 	val := (*StringVal)(p)
 	def := StringVal(value)
-	
+
 	// Crea il flag
 	flag := &Flag{
 		usage:     usage,
 		val:       val,
 		def:       &def,
-		validator: validator, // Validator di default che accetta tutto
+		validator: validator,
 	}
-	
+
 	// Registra il flag nella mappa
 	(*f)[name] = flag
+	return nil
+}
+
+// Bool support
+type BoolVal bool
+
+func (b *BoolVal) String() string {
+	if b == nil {
+		return "false"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
+}
+
+// Bool defines a boolean flag and returns a pointer to the bool value.
+func (f *Flags) Bool(name string, value bool, usage string, validator utils.Matcher) *bool {
+	p := new(bool)
+	_ = f.BoolVarE(p, name, value, usage, validator)
+	return p
+}
+
+// BoolVar defines a boolean flag that stores its value in the provided pointer.
+func (f *Flags) BoolVar(p *bool, name string, value bool, usage string, validator utils.Matcher) {
+	if err := f.BoolVarE(p, name, value, usage, validator); err != nil {
+		fmt.Fprintln(os.Stderr, "flag registration error:", err)
+		os.Exit(2)
+	}
+}
+
+// BoolVarE is the error-returning variant of BoolVar.
+func (f *Flags) BoolVarE(p *bool, name string, value bool, usage string, validator utils.Matcher) error {
+	if f == nil {
+		return fmt.Errorf("flags map is nil")
+	}
+	*p = value
+	val := (*BoolVal)(p)
+	def := BoolVal(value)
+	flag := &Flag{
+		usage:     usage,
+		val:       val,
+		def:       &def,
+		validator: func(s string) bool { return true },
+	}
+	(*f)[name] = flag
+	return nil
 }
 
 // Parse analizza gli argomenti della command line e popola i flag registrati
@@ -88,21 +146,46 @@ func (f *Flags) ParseArgs(args []string) {
 			continue // Flag non riconosciuto, ignora
 		}
 		
+		// Se il flag è booleano, gestisci presenza o valore esplicito
+		if boolVal, ok := flag.val.(*BoolVal); ok {
+			// default: presence sets true
+			setTrue := true
+			if i+1 < len(args) && !isFlag(args[i+1]) {
+				v := args[i+1]
+				// accetta true/false espliciti
+				if v == "true" || v == "false" {
+					setTrue = (v == "true")
+					// validate
+					if flag.validator != nil && !flag.validator(v) {
+						f.Help()
+						panic("Error Parsing flags")
+					}
+					*boolVal = BoolVal(setTrue)
+					i++
+					continue
+				}
+				// se il valore successivo non è true/false e non è un flag,
+				// consideriamo comunque la presenza come true and continue without consuming next
+			}
+			*boolVal = BoolVal(true)
+			continue
+		}
+
 		// Per flag string, il prossimo argomento è il valore
 		if i+1 < len(args) && !isFlag(args[i+1]) {
 			value := args[i+1]
-			
+
 			// Valida il valore se c'è un validator
 			if flag.validator != nil && !flag.validator(value) {
 				f.Help()
 				panic("Error Parsing flags")
 			}
-			
+
 			// Imposta il valore nel flag
 			if stringVal, ok := flag.val.(*StringVal); ok {
 				*stringVal = StringVal(value)
 			}
-			
+
 			i++ // Salta il valore che abbiamo appena processato
 		}
 	}
