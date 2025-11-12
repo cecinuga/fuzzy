@@ -266,7 +266,7 @@ Guidelines:
 
 
 ### To-Do Functionality List 🦞
-- 🔴 Improve verbosity, adding -v -vv -vvv for levels
+- 🔴 Improve verbosity, adding -v -vv -vvv for log levels
 - 🔴 Implement optional and mandatory flag
 - 🔴 Add support for custom HTTP headers
 - 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension

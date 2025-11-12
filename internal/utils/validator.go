@@ -14,6 +14,7 @@ const HTTP_METHOD_RE = `^(POST|GET|PUT|DELETE|PATCH|OPTIONS|TRACE|CONNECT|HEAD)$
 const HTTP_QUERY_PARAMETERS_RE = `^([^=&?]+=[^&#]*)(?:&[^=&?]+=[^&#]*)*$`
 const PATH_RE = `^([\/\w \.-]*)+\/?$`
 const ALPHABETIC_RE = `^[\w]+$`
+const VERBOSITY_RE = `^[1|2|3]$`
 
 type Matcher func (string) bool
 
@@ -48,6 +49,10 @@ func IsHttpMethod(method string) bool {
 
 func IsHttpQueryParameters(parameters string) bool {
 	return match(parameters, HTTP_QUERY_PARAMETERS_RE)
+}
+
+func IsVerbosity(level string) bool {
+	return match(level, VERBOSITY_RE)
 }
 
 func ValidateEndpoint(url string) bool {

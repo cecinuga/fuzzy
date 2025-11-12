@@ -8,15 +8,14 @@ import (
 	"strings"
 )
 
-func BuildRequest(cfg *config.Config, body, queryParams map[string]any) (*http.Request, error) {
+func BuildRequest(cfg *config.Config, body map[string]any, queryParams string) (*http.Request, error) {
 	var encodedEndpoint string
 
-	encodedQuery := utils.EncodeQuery(queryParams)
-	encodedEndpoint = strings.Join([]string{string(cfg.Endpoint), encodedQuery}, "")
+	encodedEndpoint = strings.Join([]string{cfg.Endpoint, queryParams}, "")
 
 	bodyReader := utils.MarshalJson(body)
 
-	req, err := http.NewRequest(string(cfg.Method), encodedEndpoint, bodyReader)
+	req, err := http.NewRequest(cfg.Method, encodedEndpoint, bodyReader)
 	
 	if err != nil {
 		return nil, fmt.Errorf("Error creating http client.")

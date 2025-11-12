@@ -2,10 +2,10 @@ package fuzzer
 
 import (
 	"bufio"
-	"fmt"
 	"fuzzy/internal/client"
 	"fuzzy/internal/config"
 	"fuzzy/internal/request"
+	"fuzzy/internal/utils"
 	"fuzzy/pkg/target"
 	"log"
 	"net/http"
@@ -71,37 +71,46 @@ func (f *Fuzzer) spawner(
 	var chGroup sync.WaitGroup
 	var reqMutex sync.Mutex
 
-	responses := make(chan string)
+	responses := make(chan utils.ResponseMsg)
 
 	for scanner.Scan() {
 		chGroup.Add(1)
 		value := scanner.Text()
 		
-		go func(value string){
+		go func(fuzzValue string){
 			defer chGroup.Done()
 			
 			reqMutex.Lock()
-			body.SetTarget(value)
+			body.SetTarget(fuzzValue)
 			bodyData := body.GetMap()
 
-			queryParams.SetTarget(value)
+			queryParams.SetTarget(fuzzValue)
 			queryData := queryParams.GetMap()
+			encodedQuery := utils.EncodeQuery(queryData)
 
-			req, err := request.BuildRequest(f.config, bodyData, queryData)
+			req, err := request.BuildRequest(f.config, bodyData, encodedQuery)
 			reqMutex.Unlock()
+			
+			message := utils.ResponseMsg{} 
 
+			var response string
 			if err != nil {
-				responses <- "[!] Error building request." 
-				return
+				message.Status = err.Error()
+				message.Error = true
+			} else {
+				response, err = request.SendRequest(f.client, req)
+				if err != nil {
+					message.Status = err.Error()
+					message.Error = true
+				} else {
+					message.Status = response
+				}
 			}
+			
+			message.FuzzValue = value
+			message.QueryParams = encodedQuery
 
-			response, err := request.SendRequest(f.client, req)
-			if err != nil {
-				responses <- "[!] Error sending request." 
-				return
-			}
-
-			responses <- response
+			responses <- message
 		}(value)
 	}
 
@@ -110,8 +119,8 @@ func (f *Fuzzer) spawner(
 		close(responses)
 	}()
 	
-	for status := range responses {
-		fmt.Printf("[+] Response status: %v\n", status)
+	for res := range responses {
+		utils.Log(res)
 	}
 	
 	if err := scanner.Err(); err != nil {

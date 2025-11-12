@@ -13,6 +13,7 @@ type Config struct {
 	Dictionary 			string
 	LogFile 			string
 	FuzzyKey 			string
+	Verbosity			string
 	InsecureConnection  bool
 }
 
@@ -28,6 +29,7 @@ func CreateConfig() Config{
 	dict := flags.String("dict", "", "[#] Dictionary file.", utils.ValidateDict)
 	key := flags.String("key", "FUZZY", "[#] Replace key with dict values.", utils.IsAlphabetic)
 	out := flags.String("o", "", "[#] Redirect stdout, if doesn't exist, will created.", utils.IsPath)
+	verbosity := flags.String("v", "0", "[#] Log verbosity, <1|2|3>", utils.IsVerbosity)
 	
 	// TODO: Implementare Bool() in flaggy.go per il flag insecure
 	// k := flags.Bool("k", false, "[#] Skip TLS certificate verification (insecure).")
@@ -35,13 +37,14 @@ func CreateConfig() Config{
 	// Popola la config con i puntatori ai valori dei flag
 	flags.Parse()
 
-	config.Method = *method
-	config.Endpoint = *endpoint
-	config.Body = *body
-	config.QueryParameters = *query
-	config.Dictionary = *dict
-	config.LogFile = *out
-	config.FuzzyKey = *key
+	config.Method = 		 	*method
+	config.Endpoint = 		 	*endpoint
+	config.Body = 			 	*body
+	config.QueryParameters = 	*query
+	config.Dictionary = 	 	*dict
+	config.LogFile = 		 	*out
+	config.FuzzyKey = 		 	*key
+	config.Verbosity = 		 	*verbosity
 	config.InsecureConnection = false 
 	
 	return config
