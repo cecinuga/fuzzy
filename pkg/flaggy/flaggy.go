@@ -20,6 +20,7 @@ type Flag struct {
 	usage 		string
 	val 		Value
 	def 		Value
+	mandatory	bool
 	validator 	utils.Matcher
 }
 
@@ -27,26 +28,26 @@ type Flags map[string]*Flag
 
 // String definisce un flag string con nome, valore di default e usage.
 // Ritorna un puntatore alla stringa che conterrà il valore del flag.
-func (f *Flags) String(name string, value string, usage string, validator utils.Matcher) *string {
+func (f *Flags) String(name, value, usage string, mandatory bool, validator utils.Matcher) *string {
 	p := new(string)
 	// Keep backward-compatible: use StringVar which currently does not return error
 	// but prefer the error-aware variant internally when possible.
-	_ = f.StringVarE(p, name, value, usage, validator)
+	_ = f.StringVarE(p, name, value, usage, mandatory, validator)
 	return p
 }
 
 // StringVar definisce un flag string con nome, valore di default e usage.
 // L'argomento p punta a una variabile string che memorizza il valore del flag.
-func (f *Flags) StringVar(p *string, name string, value string, usage string, validator utils.Matcher) {
+func (f *Flags) StringVar(p *string, name, value, usage string, mandatory bool, validator utils.Matcher) {
 	// Backwards-compatible wrapper: call error-aware variant and abort on error
-	if err := f.StringVarE(p, name, value, usage, validator); err != nil {
+	if err := f.StringVarE(p, name, value, usage, mandatory, validator); err != nil {
 		fmt.Fprintln(os.Stderr, "flag registration error:", err)
 		os.Exit(2)
 	}
 }
 
 // StringVarE is the error-returning variant of StringVar.
-func (f *Flags) StringVarE(p *string, name string, value string, usage string, validator utils.Matcher) error {
+func (f *Flags) StringVarE(p *string, name, value, usage string, mandatory bool, validator utils.Matcher) error {
 	if f == nil {
 		return fmt.Errorf("flags map is nil")
 	}
@@ -239,6 +240,12 @@ func (f *Flags) Help() {
 		}
 		
 		fmt.Println()
+	}
+	for name, flag := range *f {
+		if flag.val.String() == flag.def.String() && flag.mandatory {
+			f.Help()
+			panic(fmt.Sprintf("[!] %v is mandatory", name))
+		}	
 	}
 }
 

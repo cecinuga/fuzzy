@@ -107,6 +107,7 @@ func (f *Fuzzer) spawner(
 				}
 			}
 			
+			message.Time = fmt.Sprintf("%v", time.DateTime)
 			message.FuzzValue = value
 			message.QueryParams = encodedQuery
 
