@@ -1,11 +1,14 @@
 package utils
 
-import "fmt"
+import (
+	"fmt"
+)
 
 type ResponseMsg struct {
 	Status 		string
 	QueryParams string
 	FuzzValue 	string
+	Time 		string
 	Error 		bool
 }
 
@@ -14,5 +17,5 @@ func Log(res ResponseMsg){
 
 	if res.Error { init="[!]" }
 
-	fmt.Printf("%v %v %v %v\n", init, res.Status, res.FuzzValue, res.QueryParams)
+	fmt.Printf("%v %v %v %v %v\n", init, res.Time, res.Status, res.FuzzValue, res.QueryParams)
 }

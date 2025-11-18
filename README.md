@@ -262,12 +262,10 @@ Guidelines:
 ## Roadmap 🦉
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Add unit tests for core functionality
-- 🟡 Implement result export to CSV/JSON formatsI keys
 
 
 ### To-Do Functionality List 🦞
-- 🔴 Improve verbosity, adding -v -vv -vvv for log levels
-- 🔴 Implement optional and mandatory flag
+- 🔴 Printing Help return randomly
 - 🔴 Add support for custom HTTP headers
 - 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension
 - 🟠 Add support for more response formats (e.g., XML, HTML)

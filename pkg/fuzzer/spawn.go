@@ -2,6 +2,7 @@ package fuzzer
 
 import (
 	"bufio"
+	"fmt"
 	"fuzzy/internal/client"
 	"fuzzy/internal/config"
 	"fuzzy/internal/request"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"time"
 )
 
 type Fuzzer struct {
@@ -24,7 +26,6 @@ func New(cfg *config.Config) *Fuzzer {
         client: client.CreateClient(cfg.InsecureConnection),
     }
 }
-
 
 func (f *Fuzzer) Run() {
 	body := target.FuzzTarget{}
@@ -107,6 +108,8 @@ func (f *Fuzzer) spawner(
 				}
 			}
 			
+
+			message.Time = fmt.Sprintf("%v", time.DateTime)
 			message.FuzzValue = value
 			message.QueryParams = encodedQuery
 
