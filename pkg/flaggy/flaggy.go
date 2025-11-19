@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"fuzzy/internal/utils"
 	"os"
+	"sort"
 )
 
 type Value interface {
@@ -22,9 +23,25 @@ type Flag struct {
 	def 		Value
 	mandatory	bool
 	validator 	utils.Matcher
+	order      int
 }
 
 type Flags map[string]*Flag
+// registration order counter
+var nextOrder int
+
+// helpKeyFunc returns an integer key used to sort flags in Help().
+// By default it returns the registration order.
+var helpKeyFunc = func(name string, f *Flag) int { return f.order }
+
+// SetHelpKey sets a custom function to compute sort keys for Help ordering.
+func SetHelpKey(fn func(name string, f *Flag) int) {
+	if fn == nil {
+		helpKeyFunc = func(name string, f *Flag) int { return f.order }
+		return
+	}
+	helpKeyFunc = fn
+}
 
 // String definisce un flag string con nome, valore di default e usage.
 // Ritorna un puntatore alla stringa che conterrà il valore del flag.
@@ -65,10 +82,14 @@ func (f *Flags) StringVarE(p *string, name, value, usage string, mandatory bool,
 		val:       val,
 		def:       &def,
 		validator: validator,
+		mandatory: mandatory,
 	}
 
 	// Registra il flag nella mappa
 	(*f)[name] = flag
+	// set registration order
+	flag.order = nextOrder
+	nextOrder++
 	return nil
 }
 
@@ -91,7 +112,6 @@ func (f *Flags) Bool(name string, value bool, usage string, validator utils.Matc
 	_ = f.BoolVarE(p, name, value, usage, validator)
 	return p
 }
-
 // BoolVar defines a boolean flag that stores its value in the provided pointer.
 func (f *Flags) BoolVar(p *bool, name string, value bool, usage string, validator utils.Matcher) {
 	if err := f.BoolVarE(p, name, value, usage, validator); err != nil {
@@ -115,6 +135,9 @@ func (f *Flags) BoolVarE(p *bool, name string, value bool, usage string, validat
 		validator: func(s string) bool { return true },
 	}
 	(*f)[name] = flag
+	// set registration order
+	flag.order = nextOrder
+	nextOrder++
 	return nil
 }
 
@@ -190,6 +213,12 @@ func (f *Flags) ParseArgs(args []string) {
 			i++ // Salta il valore che abbiamo appena processato
 		}
 	}
+	for name, flag := range *f {
+		if flag.val.String() == flag.def.String() && flag.mandatory {
+			f.Help()
+			panic(fmt.Sprintf("[!] -%v is mandatory", name))
+		}	
+	}
 }
 
 // isFlag controlla se una stringa è un flag (inizia con '-' o '--')
@@ -214,41 +243,44 @@ func (f *Flags) Help() {
 		}
 	}
 	
-	// Stampa ogni flag con formatting uniforme
-	for name, flag := range *f {
+	// Stampa i flag ordinati usando helpKeyFunc
+	names := make([]string, 0, len(*f))
+	for name := range *f {
+		names = append(names, name)
+	}
+
+	sort.Slice(names, func(i, j int) bool {
+		fi := (*f)[names[i]]
+		fj := (*f)[names[j]]
+		ki := helpKeyFunc(names[i], fi)
+		kj := helpKeyFunc(names[j], fj)
+		if ki != kj {
+			return ki < kj
+		}
+		return names[i] < names[j]
+	})
+
+	for _, name := range names {
+		flag := (*f)[name]
 		if flag == nil {
 			continue
 		}
-		
-		// Determina il valore di default
 		defaultValue := ""
 		if flag.def != nil {
 			defaultValue = flag.def.String()
 		}
-		
-		// Format: -name      usage (default: "value")
 		padding := maxLen - len(name)
 		spaces := ""
 		for i := 0; i < padding+2; i++ {
 			spaces += " "
 		}
-		
 		fmt.Printf("  -%s%s%s", name, spaces, flag.usage)
-		
 		if defaultValue != "" {
 			fmt.Printf(" (default: \"%s\")", defaultValue)
 		}
-		
 		fmt.Println()
 	}
-	for name, flag := range *f {
-		if flag.val.String() == flag.def.String() && flag.mandatory {
-			f.Help()
-			panic(fmt.Sprintf("[!] %v is mandatory", name))
-		}	
-	}
 }
-
 // Esempio di utilizzo (simile al package flag standard):
 /*
 func ExampleUsage() {

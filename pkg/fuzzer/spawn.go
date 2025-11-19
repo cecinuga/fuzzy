@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"fmt"
+	"time"
 )
 
 type Fuzzer struct {
@@ -106,7 +108,7 @@ func (f *Fuzzer) spawner(
 					message.Status = response
 				}
 			}
-			
+
 			message.Time = fmt.Sprintf("%v", time.DateTime)
 			message.FuzzValue = value
 			message.QueryParams = encodedQuery
