@@ -4,16 +4,16 @@ import "fmt"
 
 type ResponseMsg struct {
 	Status 		string
-	QueryParams string
 	FuzzValue 	string
 	Time 		string
-	Error 		bool
+	ResMsg 		string
 }
 
 func Log(res ResponseMsg){
-	init := "[#]"
+	init := "[+]"
+	if res.Status[0] != '2' {
+		init = "[!]"
+	}
 
-	if res.Error { init="[!]" }
-
-	fmt.Printf("%v %v %v %v %v\n", init, res.Time, res.Status, res.FuzzValue, res.QueryParams)
+	fmt.Printf("%v %v %v <val: %v> %v\n", init, res.Time, res.Status, res.FuzzValue, res.ResMsg)
 }

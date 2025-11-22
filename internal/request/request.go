@@ -29,7 +29,7 @@ func SendRequest(client *http.Client, req *http.Request) (string, error) {
 	res, err := client.Do(req)
 
 	if err != nil {
-		return "", fmt.Errorf("Request not send! %v", req.URL)
+		return "", fmt.Errorf("err")
 	}
 	defer res.Body.Close()
 

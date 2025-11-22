@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"sync"
-	"fmt"
 	"time"
 )
 
@@ -98,20 +97,17 @@ func (f *Fuzzer) spawner(
 			var response string
 			if err != nil {
 				message.Status = err.Error()
-				message.Error = true
 			} else {
 				response, err = request.SendRequest(f.client, req)
 				if err != nil {
 					message.Status = err.Error()
-					message.Error = true
 				} else {
 					message.Status = response
 				}
 			}
 
-			message.Time = fmt.Sprintf("%v", time.DateTime)
+			message.Time = time.TimeOnly
 			message.FuzzValue = value
-			message.QueryParams = encodedQuery
 
 			responses <- message
 		}(value)
