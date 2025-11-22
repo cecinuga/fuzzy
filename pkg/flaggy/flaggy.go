@@ -5,6 +5,7 @@ import (
 	"fuzzy/internal/utils"
 	"os"
 	"sort"
+	"log"
 )
 
 type Value interface {
@@ -216,7 +217,7 @@ func (f *Flags) ParseArgs(args []string) {
 	for name, flag := range *f {
 		if flag.val.String() == flag.def.String() && flag.mandatory {
 			f.Help()
-			panic(fmt.Sprintf("[!] -%v is mandatory", name))
+			log.Fatalf("[!] -%v is mandatory", name)
 		}	
 	}
 }
