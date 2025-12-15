@@ -266,6 +266,7 @@ Guidelines:
 
 
 ### To-Do Functionality List 🦞
+- 🔴 Add support for certificates
 - 🔴 Add support for custom HTTP headers
 - 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension
 - 🟠 Add support for more response formats (e.g., XML, HTML)
