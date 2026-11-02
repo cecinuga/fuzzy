@@ -1,51 +1,138 @@
+// Package config turns command line arguments into a validated configuration.
 package config
 
 import (
-	"fuzzy/internal/utils"
-	"fuzzy/pkg/flaggy"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"math/rand/v2"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"fuzzy/internal/fuzzer"
+	"fuzzy/internal/generator"
 )
 
+const DefaultRequests = 100
+
+// Config is everything a run needs.
 type Config struct {
-	Endpoint 			string
-	Method 				string
-	Body 				string
-	QueryParameters 	string
-	Dictionary 			string
-	LogFile 			string
-	FuzzyKey 			string
-	Verbosity			string
-	InsecureConnection  bool
+	Remote      *url.URL
+	SpecPath    string
+	DictPath    string
+	Output      string
+	Filter      fuzzer.StatusFilter
+	Bounds      generator.Bounds
+	Requests    int // 0 means: DefaultRequests, or the dictionary size if larger
+	Concurrency int
+	Timeout     time.Duration
+	Insecure    bool
+	Headers     http.Header
+	Seed        uint64
 }
 
-func CreateConfig() Config{
-	config := Config{}
-	flags := make(flaggy.Flags)
-	
-	// Definisce i flag usando la nuova API
-	method := flags.String("m", "GET", "[#] HTTP req method.", false, utils.IsHttpMethod)
-	endpoint := flags.String("e", "", "[#] Endpoint u wanna call.", true, utils.ValidateEndpoint)
-	body := flags.String("b", "", "[#] HTTP req body <'{...}'|/path/body.json>", false, utils.ValidateBody)
-	query := flags.String("q", "", "[#] HTTP req query params <key=value&key1=value1...>", false, utils.IsHttpQueryParameters)
-	dict := flags.String("dict", "", "[#] Dictionary file.", true, utils.ValidateDict)
-	key := flags.String("key", "FUZZY", "[#] Replace key with dict values.", false, utils.IsAlphabetic)
-	out := flags.String("o", "", "[#] Redirect stdout, if doesn't exist, will created.", false, utils.IsPath)
-	verbosity := flags.String("v", "0", "[#] Log verbosity, <1|2|3>", false, utils.IsVerbosity)
-	
-	// TODO: Implementare Bool() in flaggy.go per il flag insecure
-	// k := flags.Bool("k", false, "[#] Skip TLS certificate verification (insecure).")
-	
-	// Popola la config con i puntatori ai valori dei flag
-	flags.Parse()
+// headerList collects a repeatable -H flag.
+type headerList struct{ header http.Header }
 
-	config.Method = 		 	*method
-	config.Endpoint = 		 	*endpoint
-	config.Body = 			 	*body
-	config.QueryParameters = 	*query
-	config.Dictionary = 	 	*dict
-	config.LogFile = 		 	*out
-	config.FuzzyKey = 		 	*key
-	config.Verbosity = 		 	*verbosity
-	config.InsecureConnection = false 
-	
-	return config
+func (h *headerList) String() string { return "" }
+
+func (h *headerList) Set(raw string) error {
+	name, value, ok := strings.Cut(raw, ":")
+	name = strings.TrimSpace(name)
+	if !ok || name == "" {
+		return fmt.Errorf("want 'Name: value', got %q", raw)
+	}
+	h.header.Add(name, strings.TrimSpace(value))
+	return nil
+}
+
+// Parse reads args (without the program name). Usage goes to output. A help
+// request is reported as flag.ErrHelp.
+func Parse(args []string, output io.Writer) (*Config, error) {
+	bounds := generator.DefaultBounds()
+	headers := headerList{http.Header{}}
+
+	fs := flag.NewFlagSet("fuzzy", flag.ContinueOnError)
+	fs.SetOutput(output)
+
+	remote := fs.String("remote", "", "base URL of the API to fuzz (required)")
+	spec := fs.String("spec", "", "OpenAPI 3.0 spec, JSON format (required)")
+	status := fs.String("status", "", "status codes in the report, e.g. 200,404,5xx,400-404,err (default all)")
+	dict := fs.String("dict", "", "wordlist, one value per line (default: random values only)")
+	fs.IntVar(&bounds.StringMin, "string-min", bounds.StringMin, "random string minimum length")
+	fs.IntVar(&bounds.StringMax, "string-max", bounds.StringMax, "random string maximum length")
+	fs.Int64Var(&bounds.IntMin, "int-min", bounds.IntMin, "random integer minimum")
+	fs.Int64Var(&bounds.IntMax, "int-max", bounds.IntMax, "random integer maximum")
+	fs.Float64Var(&bounds.FloatMin, "float-min", bounds.FloatMin, "random float minimum")
+	fs.Float64Var(&bounds.FloatMax, "float-max", bounds.FloatMax, "random float maximum")
+	charset := fs.String("charset", string(bounds.Charset), "random string characters: unicode or alnum")
+	requests := fs.Int("n", 0, fmt.Sprintf("requests per endpoint (default %d, or the dictionary size if larger)", DefaultRequests))
+	concurrency := fs.Int("c", 20, "concurrent workers")
+	timeout := fs.Duration("timeout", 10*time.Second, "timeout of each request")
+	reportPath := fs.String("o", "fuzzy-report.md", "markdown report path")
+	insecure := fs.Bool("k", false, "skip TLS certificate verification")
+	seed := fs.Uint64("seed", 0, "seed to reproduce a run's inputs (default random)")
+	fs.Var(&headers, "H", "header for every request, 'Name: value' (repeatable)")
+
+	if err := fs.Parse(args); err != nil {
+		return nil, err
+	}
+	if fs.NArg() > 0 {
+		return nil, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	if *remote == "" {
+		return nil, errors.New("-remote is required")
+	}
+	if *spec == "" {
+		return nil, errors.New("-spec is required")
+	}
+
+	target, err := url.Parse(*remote)
+	if err != nil {
+		return nil, fmt.Errorf("-remote: %w", err)
+	}
+	if (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" {
+		return nil, fmt.Errorf("-remote: want an http(s) URL with a host, got %q", *remote)
+	}
+
+	filter, err := fuzzer.ParseStatusFilter(*status)
+	if err != nil {
+		return nil, fmt.Errorf("-status: %w", err)
+	}
+
+	bounds.Charset = generator.Charset(*charset)
+	if err := bounds.Validate(); err != nil {
+		return nil, err
+	}
+
+	switch {
+	case *requests < 0:
+		return nil, fmt.Errorf("-n must not be negative (got %d)", *requests)
+	case *concurrency < 1:
+		return nil, fmt.Errorf("-c must be at least 1 (got %d)", *concurrency)
+	case *timeout <= 0:
+		return nil, fmt.Errorf("-timeout must be positive (got %s)", *timeout)
+	}
+
+	if *seed == 0 {
+		*seed = rand.Uint64()
+	}
+
+	return &Config{
+		Remote:      target,
+		SpecPath:    *spec,
+		DictPath:    *dict,
+		Output:      *reportPath,
+		Filter:      filter,
+		Bounds:      bounds,
+		Requests:    *requests,
+		Concurrency: *concurrency,
+		Timeout:     *timeout,
+		Insecure:    *insecure,
+		Headers:     headers.header,
+		Seed:        *seed,
+	}, nil
 }

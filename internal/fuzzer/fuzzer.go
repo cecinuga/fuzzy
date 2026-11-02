@@ -1,0 +1,248 @@
+// Package fuzzer sends generated requests to a remote API with a bounded worker
+// pool and collects what comes back.
+package fuzzer
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"math/rand/v2"
+	"net/http"
+	"net/url"
+	"slices"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	snippetSize  = 1 << 10 // bytes of a response body inspected for the message
+	drainLimit   = 1 << 20 // bytes drained to keep a connection reusable
+	maxMsgRunes  = 200
+	progressTick = 5 * time.Second
+)
+
+// Options configures a run.
+type Options struct {
+	Requests    int // requests per operation
+	Concurrency int
+	Timeout     time.Duration
+	Insecure    bool
+	Headers     http.Header // sent with every request, overriding generated ones
+	Seed        uint64
+	Filter      StatusFilter
+	Progress    io.Writer // optional
+}
+
+// Result is the outcome of one call: (endpoint, status code, message, input).
+type Result struct {
+	Endpoint string
+	Status   int // TransportError when no response was received
+	Message  string
+	Input    string
+	iter     int
+}
+
+// Outcome aggregates the calls made to one target. Counts always covers every
+// call; Results only holds those that passed the status filter.
+type Outcome struct {
+	Target  *Target
+	Sent    int
+	Counts  map[int]int
+	Results []Result
+}
+
+type job struct{ target, iter int }
+
+type record struct {
+	target int
+	result Result
+}
+
+// Run fuzzes all targets and returns one Outcome per target, in target order.
+// Cancelling ctx stops the run early; what was collected so far is still returned.
+func Run(ctx context.Context, opts Options, targets []*Target) []Outcome {
+	client := newClient(opts)
+	jobs := make(chan job)
+	records := make(chan record, opts.Concurrency)
+
+	// Rounds go over all targets rather than target by target, so an
+	// interrupted run still has covered every endpoint evenly.
+	go func() {
+		defer close(jobs)
+		for iter := range opts.Requests {
+			for i := range targets {
+				select {
+				case jobs <- job{i, iter}:
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	var workers sync.WaitGroup
+	for range opts.Concurrency {
+		workers.Go(func() {
+			w := newWorker(client, opts)
+			for j := range jobs {
+				result, ok := w.call(ctx, targets[j.target], j)
+				if ok {
+					records <- record{j.target, result}
+				}
+			}
+		})
+	}
+	go func() {
+		workers.Wait()
+		close(records)
+	}()
+
+	return collect(records, opts, targets)
+}
+
+// collect is the only owner of the outcomes, so they need no locking.
+func collect(records <-chan record, opts Options, targets []*Target) []Outcome {
+	outcomes := make([]Outcome, len(targets))
+	for i, t := range targets {
+		outcomes[i] = Outcome{Target: t, Counts: map[int]int{}}
+	}
+
+	ticker := time.NewTicker(progressTick)
+	defer ticker.Stop()
+
+	total := len(targets) * opts.Requests
+	done := 0
+	for {
+		select {
+		case rec, open := <-records:
+			if !open {
+				for i := range outcomes {
+					// Workers finish out of order; sorting makes the report reproducible.
+					slices.SortFunc(outcomes[i].Results, func(a, b Result) int { return a.iter - b.iter })
+				}
+				return outcomes
+			}
+			done++
+			out := &outcomes[rec.target]
+			out.Sent++
+			out.Counts[rec.result.Status]++
+			if opts.Filter.Match(rec.result.Status) {
+				out.Results = append(out.Results, rec.result)
+			}
+		case <-ticker.C:
+			if opts.Progress != nil {
+				fmt.Fprintf(opts.Progress, "[+] %d/%d requests\n", done, total)
+			}
+		}
+	}
+}
+
+func newClient(opts Options) *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = opts.Concurrency
+	transport.MaxIdleConnsPerHost = opts.Concurrency
+	transport.DisableCompression = true
+	if opts.Insecure {
+		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	return &http.Client{
+		Transport: transport,
+		Timeout:   opts.Timeout,
+		// A redirect is itself a result, and following it could leave the target.
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
+	}
+}
+
+// worker holds the per-goroutine state that makes calls allocation-light.
+type worker struct {
+	client  *http.Client
+	opts    Options
+	pcg     *rand.PCG
+	rng     *rand.Rand
+	snippet []byte
+}
+
+func newWorker(client *http.Client, opts Options) *worker {
+	pcg := rand.NewPCG(0, 0)
+	return &worker{client: client, opts: opts, pcg: pcg, rng: rand.New(pcg), snippet: make([]byte, snippetSize)}
+}
+
+// call performs one job. The random stream derives only from the seed and the
+// job, never from scheduling, so a seed reproduces the same inputs at any
+// concurrency. ok is false when the call was abandoned because of cancellation.
+func (w *worker) call(ctx context.Context, t *Target, j job) (Result, bool) {
+	w.pcg.Seed(w.opts.Seed, mix(uint64(j.target)<<32|uint64(j.iter)))
+
+	req, input, err := t.build(ctx, w.rng, j.iter)
+	result := Result{Endpoint: t.Op.Method + " " + t.Op.Path, Input: input, iter: j.iter}
+	if err != nil {
+		result.Message = err.Error()
+		return result, true
+	}
+	result.Endpoint = t.Op.Method + " " + req.URL.EscapedPath()
+	w.applyHeaders(req)
+
+	res, err := w.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return result, false
+		}
+		result.Message = transportMessage(err)
+		return result, true
+	}
+	defer res.Body.Close()
+
+	n, _ := io.ReadFull(res.Body, w.snippet)
+	_, _ = io.CopyN(io.Discard, res.Body, drainLimit)
+
+	result.Status = res.StatusCode
+	result.Message = message(w.snippet[:n], res.StatusCode)
+	return result, true
+}
+
+func (w *worker) applyHeaders(req *http.Request) {
+	if req.Header.Get("User-Agent") == "" {
+		req.Header.Set("User-Agent", "fuzzy")
+	}
+	for name, values := range w.opts.Headers {
+		if strings.EqualFold(name, "Host") {
+			req.Host = values[len(values)-1]
+			continue
+		}
+		req.Header[name] = values
+	}
+}
+
+// mix is the SplitMix64 finalizer: consecutive job numbers must not produce
+// visibly related random streams.
+func mix(x uint64) uint64 {
+	x += 0x9E3779B97F4A7C15
+	x = (x ^ (x >> 30)) * 0xBF58476D1CE4E5B9
+	x = (x ^ (x >> 27)) * 0x94D049BB133111EB
+	return x ^ (x >> 31)
+}
+
+// transportMessage drops url.Error's method and URL: the result already has them.
+func transportMessage(err error) string {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return urlErr.Err.Error()
+	}
+	return err.Error()
+}
+
+// message condenses a response into one line: the start of the body, or the
+// standard status text when the body is empty.
+func message(body []byte, status int) string {
+	text := strings.Join(strings.Fields(strings.ToValidUTF8(string(body), "")), " ")
+	if text == "" {
+		return http.StatusText(status)
+	}
+	if runes := []rune(text); len(runes) > maxMsgRunes {
+		return string(runes[:maxMsgRunes]) + "…"
+	}
+	return text
+}

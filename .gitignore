@@ -1,5 +1,5 @@
 .vscode
-.go.sum
-fuzzy
-main
+/fuzzy
+/main
+/fuzzy-report.md
 .venv
