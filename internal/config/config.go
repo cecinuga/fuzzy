@@ -9,6 +9,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -49,6 +50,33 @@ func (h *headerList) Set(raw string) error {
 	return nil
 }
 
+// parseRemote accepts a full http(s) URL, an FQDN or a host:port. Without a
+// scheme, a port other than 443 means http and anything else https: redirects
+// are not followed, so plain http to a public host would only report 301s.
+func parseRemote(raw string) (*url.URL, error) {
+	hasScheme := strings.Contains(raw, "://")
+	withScheme := raw
+	if !hasScheme {
+		withScheme = "http://" + raw
+	}
+
+	target, err := url.Parse(withScheme)
+	if err != nil {
+		return nil, err
+	}
+	if (target.Scheme != "http" && target.Scheme != "https") || target.Hostname() == "" {
+		return nil, fmt.Errorf("want a URL, FQDN or host:port, got %q", raw)
+	}
+	port := target.Port()
+	if n, err := strconv.Atoi(port); port != "" && (err != nil || n < 1 || n > 65535) {
+		return nil, fmt.Errorf("invalid port in %q", raw)
+	}
+	if !hasScheme && (port == "" || port == "443") {
+		target.Scheme = "https"
+	}
+	return target, nil
+}
+
 // Parse reads args (without the program name). Usage goes to output. A help
 // request is reported as flag.ErrHelp.
 func Parse(args []string, output io.Writer) (*Config, error) {
@@ -58,7 +86,7 @@ func Parse(args []string, output io.Writer) (*Config, error) {
 	fs := flag.NewFlagSet("fuzzy", flag.ContinueOnError)
 	fs.SetOutput(output)
 
-	remote := fs.String("remote", "", "base URL of the API to fuzz (required)")
+	remote := fs.String("remote", "", "API to fuzz: URL, FQDN or host:port (required)")
 	spec := fs.String("spec", "", "OpenAPI 3.0 spec, JSON format (required)")
 	status := fs.String("status", "", "status codes in the report, e.g. 200,404,5xx,400-404,err (default all)")
 	dict := fs.String("dict", "", "wordlist, one value per line (default: random values only)")
@@ -90,12 +118,9 @@ func Parse(args []string, output io.Writer) (*Config, error) {
 		return nil, errors.New("-spec is required")
 	}
 
-	target, err := url.Parse(*remote)
+	target, err := parseRemote(*remote)
 	if err != nil {
 		return nil, fmt.Errorf("-remote: %w", err)
-	}
-	if (target.Scheme != "http" && target.Scheme != "https") || target.Host == "" {
-		return nil, fmt.Errorf("-remote: want an http(s) URL with a host, got %q", *remote)
 	}
 
 	filter, err := fuzzer.ParseStatusFilter(*status)

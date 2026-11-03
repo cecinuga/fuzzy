@@ -337,6 +337,25 @@ func TestStatusFlagFiltersTheReport(t *testing.T) {
 	}
 }
 
+func TestRemoteAsHostPortReachesTheServer(t *testing.T) {
+	var violations []string
+	var mu sync.Mutex
+	srv := httptest.NewServer(strictAPI(&violations, &mu))
+	defer srv.Close()
+
+	hostPort := strings.TrimPrefix(srv.URL, "http://")
+	code, stdout, stderr := runCLI(t, "-remote", hostPort, "-spec", sampleSpec, "-n", "5", "-o", filepath.Join(t.TempDir(), "r.md"))
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if !strings.Contains(stdout, "0 without a response") {
+		t.Errorf("stdout = %s", stdout)
+	}
+	if len(violations) > 0 {
+		t.Errorf("invalid requests: %v", violations[:min(5, len(violations))])
+	}
+}
+
 func TestExitCodes(t *testing.T) {
 	dir := t.TempDir()
 	cases := []struct {

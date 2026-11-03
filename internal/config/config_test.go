@@ -25,6 +25,38 @@ func TestParseDefaults(t *testing.T) {
 	}
 }
 
+func TestParseRemoteForms(t *testing.T) {
+	cases := map[string]string{
+		// Full URLs are kept as written.
+		"http://localhost:8080":      "http://localhost:8080",
+		"https://api.example.com/v3": "https://api.example.com/v3",
+		"http://api.example.com":     "http://api.example.com",
+		"https://localhost:8443":     "https://localhost:8443",
+		// FQDN.
+		"api.example.com":     "https://api.example.com",
+		"api.example.com.":    "https://api.example.com.",
+		"api.example.com/v3":  "https://api.example.com/v3",
+		"api.example.com:443": "https://api.example.com:443",
+		// host:port.
+		"localhost:8080":       "http://localhost:8080",
+		"127.0.0.1:8080":       "http://127.0.0.1:8080",
+		"[::1]:8080":           "http://[::1]:8080",
+		"api.example.com:8080": "http://api.example.com:8080",
+		"localhost:8080/v1":    "http://localhost:8080/v1",
+	}
+	for raw, want := range cases {
+		t.Run(raw, func(t *testing.T) {
+			cfg, err := Parse([]string{"-remote", raw, "-spec", "s.json"}, io.Discard)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := cfg.Remote.String(); got != want {
+				t.Errorf("remote = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestParseAllFlags(t *testing.T) {
 	cfg, err := Parse([]string{
 		"-remote", "https://api.example.com/v1", "-spec", "s.json", "-dict", "d.txt", "-status", "200,5xx",
@@ -60,9 +92,13 @@ func TestParseRejectsBadInput(t *testing.T) {
 	}{
 		"no remote":     {[]string{"-spec", "s.json"}, "-remote is required"},
 		"no spec":       {[]string{"-remote", "http://x.io"}, "-spec is required"},
-		"no scheme":     {[]string{"-remote", "x.io", "-spec", "s"}, "http(s)"},
-		"ftp":           {[]string{"-remote", "ftp://x.io", "-spec", "s"}, "http(s)"},
-		"no host":       {[]string{"-remote", "http://", "-spec", "s"}, "http(s)"},
+		"ftp":           {[]string{"-remote", "ftp://x.io", "-spec", "s"}, "-remote"},
+		"no host":       {[]string{"-remote", "http://", "-spec", "s"}, "-remote"},
+		"only a port":   {[]string{"-remote", ":8080", "-spec", "s"}, "-remote"},
+		"port too big":  {[]string{"-remote", "x.io:70000", "-spec", "s"}, "invalid port"},
+		"port zero":     {[]string{"-remote", "x.io:0", "-spec", "s"}, "invalid port"},
+		"port not num":  {[]string{"-remote", "x.io:abc", "-spec", "s"}, "-remote"},
+		"space in host": {[]string{"-remote", "x y.io", "-spec", "s"}, "-remote"},
 		"unknown flag":  {append(base, "-nope"), "not defined"},
 		"stray arg":     {append(base, "extra"), "unexpected argument"},
 		"bad status":    {append(base, "-status", "abc"), "-status"},

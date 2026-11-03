@@ -42,7 +42,7 @@ Then it calls every endpoint with requests that respect the spec, using values g
 
 * **OpenAPI 3.0 Driven**: Reads a JSON spec and fuzzes all of its endpoints, no request templates to write
 * **Semantically Valid Requests**: Respects types, formats, ranges, lengths, patterns, enums, required fields, `$ref`, `allOf`, `oneOf`, `anyOf` and discriminators
-* **Everywhere a Value Can Go**: Path, query, header and cookie parameters, plus JSON, form and multipart bodies
+* **Everywhere a Value Can Go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text and binary bodies
 * **Flexible Input**: Random values within bounds you choose, or a text file with values to test (one value per line)
 * **Dictionary With a Safety Net**: A dictionary value is only used where the spec allows it; anything it doesn't cover gets a random valid value
 * **Markdown Report**: Each endpoint with its spec and its results, filtered by the status codes you care about
@@ -86,10 +86,12 @@ Fuzzy needs two things: where the API lives and its OpenAPI 3.0 spec. Everything
 ### Basic Syntax 🦩
 
 ```bash
-./fuzzy -remote <URL> -spec <OPENAPI_JSON> [OPTIONS]
+./fuzzy -remote <URL|FQDN|HOST:PORT> -spec <OPENAPI_JSON> [OPTIONS]
 ```
 
 ### Choosing the Results 🐠
+
+A result is what one call to an endpoint produced: its endpoint, status code, message and input.
 
 `-status` decides which results end up in the report. It takes a comma separated list of exact codes, classes, ranges and `err`, which stands for requests that got no response at all (timeouts, refused connections):
 
@@ -101,7 +103,7 @@ Without `-status`, every result is reported. Filtered results still count in eac
 
 ### Choosing the Values 🦊
 
-By default values are random. Random strings have 1 to 10 characters, integers go from 0 to 1000, floats from 0 to 1000.0, and you can change all of it:
+By default values are random. Random strings have 1 to 10 characters, integers go from 0 to 1000, floats from 0 to 1000.0. Strings mix letters of several Unicode scripts with ASCII letters and digits, and `-charset alnum` keeps only the ASCII ones. You can change all of it:
 
 ```bash
 ./fuzzy -remote http://localhost:8080 -spec api.json \
@@ -193,7 +195,30 @@ root
 
 Here `1` and `999999` are also tried as integers, and the rest only as strings. A string parameter with `maxLength: 5` would only get `1`, `admin` and `root`, and one with `format: email` would get none of them, so it falls back to random valid emails.
 
+### Example 3: Trying It on a Local API 🐸
+
+`examples/crud` is a small in-memory CRUD API, safe to fuzz, written in Go. At startup it writes its spec to `artifacts/openapi.json`.
+
+**Start the API** (from the repository root):
+```bash
+go run ./examples/crud
+```
+
+**Command** (from the repository root, in another terminal):
+```bash
+./fuzzy -remote http://localhost:8000 -spec examples/crud/artifacts/openapi.json
+```
+
 ### Where the Requests Go 🐳
+
+`-remote` can be a full URL, an FQDN or a `host:port`. Without a scheme, Fuzzy uses `https` when there is no port or the port is 443, and `http` for any other port. Write the scheme yourself to choose differently, for example `http://api.example.com`.
+
+| `-remote` | Same as |
+|---|---|
+| `api.example.com` | `https://api.example.com` |
+| `api.example.com:443` | `https://api.example.com:443` |
+| `localhost:8080` | `http://localhost:8080` |
+| `127.0.0.1:8080/v1` | `http://127.0.0.1:8080/v1` |
 
 If `-remote` has no path, the path of the spec's `servers` entry is added to it. If it has one, it's used as given. Either way the host always comes from `-remote`, so Fuzzy never calls the server named in the spec.
 
@@ -209,11 +234,13 @@ If `-remote` has no path, the path of the spec's `servers` entry is added to it.
 ```
 fuzzy/
 ├── README.md            # This documentation
+├── CLAUDE.md            # Project guidance for Claude Code
 ├── go.mod               # Go module definition
 ├── assets/              # Project assets
 │   ├── fuzzy.png        # Project logo/mascot image
 │   └── fuzzyPersonality.txt # Fuzzy's character description
 ├── cmd/fuzzy/           # The command line entry point
+├── examples/crud/       # Local CRUD API to try Fuzzy on
 ├── internal/
 │   ├── config/          # Flags and their validation
 │   ├── openapi/         # Loads the spec, resolves $ref and allOf
@@ -231,7 +258,7 @@ fuzzy/
 
 | Flag | Description | Example |
 |------|-------------|---------|
-| `-remote` | Base URL of the API to fuzz (required) | `-remote http://localhost:8080` |
+| `-remote` | API to fuzz: URL, FQDN or `host:port` (required) | `-remote localhost:8080` |
 | `-spec` | OpenAPI 3.0 spec in JSON format (required) | `-spec api.json` |
 | `-status` | Status codes in the report (default all) | `-status 200,404,5xx,400-403,err` |
 | `-dict` | Values file, one value per line (default random values only) | `-dict values.txt` |
@@ -248,7 +275,7 @@ fuzzy/
 | `-o` | Markdown report path (default `fuzzy-report.md`) | `-o report.md` |
 | `-H` | Header for every request, repeatable; overrides generated ones | `-H "Authorization: Bearer abc"` |
 | `-k` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |
-| `-seed` | Seed to reproduce a run's inputs (default random, printed in the report) | `-seed 42` |
+| `-seed` | Seed to reproduce a run's inputs (default random, also for `0`; printed in the report) | `-seed 42` |
 
 ### Important Notes 🦖
 
@@ -258,6 +285,7 @@ fuzzy/
 - **Response Bodies**: The message of a result is the start of the response body (200 characters at most), or the standard status text if the body is empty.
 - **Dictionary Coverage**: Values take turns, so with enough requests each one gets used. On an optional parameter, which is only sent about half the time, some can be missed: raise `-n` if you need them all.
 - **Spec Format**: Only OpenAPI 3.0.x in JSON. Swagger 2.0, OpenAPI 3.1 and YAML are refused with an error, and so are `$ref`s that point outside the document.
+- **Progress and Exit Codes**: Long runs print their progress to stderr every 5 seconds. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
 
 ### Known Limitations 🐙
 
@@ -273,9 +301,9 @@ fuzzy/
 This fuzzer is particularly useful for:
 
 - **Authentication Testing**: Test login endpoints with different password combinations
-- **Parameter Validation**: Check how APIs handle unexpected parameter values
-- **Security Testing**: Test for injection vulnerabilities, XSS, path traversal
-- **Error Handling**: Verify proper error responses for invalid inputs
+- **Parameter Validation**: Check that APIs accept every value their spec says is valid
+- **Security Testing**: Send injection, XSS and path traversal payloads from a dictionary, wherever the spec allows them
+- **Error Handling**: Find valid requests that still make the API fail (`-status 5xx,err`)
 - **Rate Limiting**: Test API rate limiting mechanisms
 - **Input Sanitization**: Check if the API properly sanitizes user input
 
@@ -302,8 +330,8 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 Guidelines:
 
 * Maintain CLI backward compatibility when possible
-* Add unit tests for new mutators
-* Document new flags in `docs/` and `configs/`
+* Add unit tests for new schema keywords and formats
+* Document new flags in the Command Line Options table of this README
 
 - 🔴 high impact features or improvements or bug fixes should be prioritized.
 - 🟠 medium-high general improvements to code quality, usability, performance and testing.
@@ -313,16 +341,13 @@ Guidelines:
 
 ## Roadmap 🦉
 - 🟠 Generalize and modularize code for easier extension
-- 🟠 Add unit tests for core functionality
 - 🟡 Implement result export to CSV/JSON formatsI keys
 
 
 ### To-Do Functionality List 🦞
 - 🔴 Add support for certificates
-- 🔴 Add support for custom HTTP headers
 - 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension
 - 🟠 Add support for more response formats (e.g., XML, HTML)
-- 🟡 Implement insecure key
 - 🟡 Add support for more authentication methods (e.g., OAuth, AP )
 - 🟡 Implement result export to CSV/JSON formats keys
 - 🟢 Add support for XML body for SOAP APIs  
@@ -338,9 +363,6 @@ Guidelines:
 
 
 ### To-Do Testing List 🦅
-- 🟠 Add unit tests for core functionality
-- 🟠 Add integration tests with mock servers
-- 🟢 Implemnt local test server in python
  
 ---
 
