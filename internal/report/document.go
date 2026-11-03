@@ -27,11 +27,12 @@ type document struct {
 }
 
 type overview struct {
-	Target     string   `json:"target"`
-	Spec       specInfo `json:"spec"`
-	Dictionary string   `json:"dictionary"` // empty when values are only random
-	Bounds     []string `json:"randomBounds"`
-	Filter     string   `json:"statusFilter"`
+	Target     string    `json:"target"`
+	Spec       specInfo  `json:"spec"`
+	Dictionary string    `json:"dictionary"` // empty when values are only random
+	Bounds     []string  `json:"randomBounds"`
+	Filter     string    `json:"statusFilter"`
+	Selection  selection `json:"selection"`
 	// A string in JSON: seeds use all 64 bits, and many JSON readers keep numbers
 	// as doubles, which would round the seed and so fail to reproduce the run.
 	Seed            uint64 `json:"seed,string"`
@@ -39,6 +40,14 @@ type overview struct {
 	Duration        string `json:"duration"`
 	RequestsSent    int    `json:"requestsSent"`
 	ResultsReported int    `json:"resultsReported"`
+}
+
+// selection says which endpoints the run was limited to, so that a partial run
+// can't be mistaken for one that covered the whole spec.
+type selection struct {
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude"`
+	LeftOut int      `json:"endpointsLeftOut"`
 }
 
 type specInfo struct {
@@ -148,6 +157,7 @@ func newDocument(r Report) document {
 		Dictionary:      r.Dictionary,
 		Bounds:          append([]string{}, r.Bounds...),
 		Filter:          r.Filter.String(),
+		Selection:       selection{r.Selection.Include(), r.Selection.Exclude(), r.LeftOut},
 		Seed:            r.Seed,
 		Started:         r.Started.Format(time.RFC3339),
 		Duration:        r.Duration.Round(time.Millisecond).String(),

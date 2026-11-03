@@ -42,6 +42,7 @@ Then it calls every endpoint with requests that respect the spec, using values g
 
 * **OpenAPI 3.0 Driven**: Reads a JSON spec and fuzzes all of its endpoints, no request templates to write
 * **Semantically Valid Requests**: Respects types, formats, ranges, lengths, patterns, enums, required fields, `$ref`, `allOf`, `oneOf`, `anyOf` and discriminators
+* **Your Choice of Endpoints**: Include or exclude them by method, path pattern or tag, and preview the result with `--list`
 * **Everywhere a Value Can Go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text and binary bodies
 * **Flexible Input**: Random values within bounds you choose, or a text file with values to test (one value per line)
 * **Dictionary With a Safety Net**: A dictionary value is only used where the spec allows it; anything it doesn't cover gets a random valid value
@@ -91,6 +92,44 @@ Fuzzy needs two things: where the API lives and its OpenAPI 3.0 spec. Everything
 ./fuzzy --remote <URL|FQDN|HOST:PORT> --spec <OPENAPI_JSON> [OPTIONS]
 ```
 
+### Choosing the Endpoints 🦔
+
+Fuzzy calls every endpoint of the spec unless you say otherwise. `--include` keeps only the endpoints that match, and `--exclude` leaves out the ones that match. Both can be repeated:
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json --include '/users/**'
+./fuzzy --remote http://localhost:8080 --spec api.json --exclude DELETE --exclude 'POST /reports/*'
+```
+
+| Selector | Matches |
+|---|---|
+| `GET` or `GET,POST` | Those methods |
+| `/users/*` | One path segment in place of the `*`: `/users/{id}`, but not `/users` or `/users/{id}/orders` |
+| `/users/**` | Any number of segments, none included: `/users`, `/users/{id}`, `/users/{id}/orders` |
+| `/user/{id}` | That exact path |
+| `tag:billing` | The operations with that tag in the spec |
+| `GET /user/{id}`, `POST tag:billing` | Methods followed by a path or a tag, both must match |
+
+An endpoint runs if it matches any `--include`, or if there are none, and no `--exclude`, so `--exclude` always wins. Paths are written as in the spec, without the base path of its `servers`, and a wildcard has to be a whole segment. Quote selectors with `*`, `{` or spaces, or your shell may change them.
+
+`--list` shows what a run would call and exits, without sending a request or writing a report. It doesn't need `--remote`:
+
+```bash
+./fuzzy --spec api.json --exclude DELETE --list
+```
+
+Each line has an endpoint, followed by a tab and its tags if it has any, so `cut -f1` gives lines you can pass back as selectors. Endpoints that can't be fuzzed and the totals go to stderr.
+
+A selector that matches no endpoint of the spec stops the run with exit code `1` before any request is sent. Otherwise, a typo in an `--exclude` would quietly call the endpoints it was meant to protect.
+
+An endpoint gets the same inputs whichever others are left out, so you can replay one from a bigger run with its seed and the same spec and value flags:
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json --include 'GET /user/{id}' --seed 42
+```
+
+The report says which selectors were used and how many endpoints they left out. Endpoints left out don't appear under skipped endpoints, which are the ones that couldn't be fuzzed. Warnings still cover the whole spec, because every schema is compiled to keep the seed's inputs stable.
+
 ### Choosing the Results 🐠
 
 A result is what one call to an endpoint produced: its endpoint, status code, message and input.
@@ -134,6 +173,7 @@ Both formats have the same structure and the same information:
     "dictionary": "",
     "randomBounds": ["string: length 1..10 (unicode)", "int: 0..1000", "float: 0..1000"],
     "statusFilter": "5xx,err",
+    "selection": { "include": [], "exclude": [], "endpointsLeftOut": 0 },
     "seed": "42",
     "started": "2026-01-02T03:04:05Z",
     "duration": "1.5s",
@@ -174,6 +214,7 @@ A few values are written differently, to suit the format:
 
 - **`status`**: A number, or `null` when the request got no response. Markdown shows that case as `ERR`, and `statusCodes` counts it under the `ERR` key.
 - **`seed`**: A string, because seeds use 64 bits and many JSON tools would round such a large number, and a rounded seed doesn't reproduce the run.
+- **`selection`**: Always there in JSON. Markdown only adds its rows to the overview when a run used `--include` or `--exclude`.
 - **Empty values**: Every key is always there. An empty list is `[]`, and text that doesn't apply is `""`, like `dictionary` when values are only random.
 - **Text from the server**: Markdown neutralizes markup and control characters so a response can't break the document. JSON keeps what the server really sent, so treat `message` as untrusted if you display it.
 
@@ -339,6 +380,9 @@ fuzzy/
 | `--remote` | API to fuzz: URL, FQDN or `host:port` (required) | `--remote localhost:8080` |
 | `--spec` | OpenAPI 3.0 spec in JSON format (required) | `--spec api.json` |
 | `--status` | Status codes in the report (default all) | `--status 200,404,5xx,400-403,err` |
+| `--include` | Only fuzz the endpoints matching this selector, repeatable | `--include 'GET /users/*'` |
+| `--exclude` | Don't fuzz the endpoints matching this selector, even if included; repeatable | `--exclude DELETE` |
+| `--list` | Print the selected endpoints and exit, without sending requests (`--remote` not needed) | `--list` |
 | `--dict` | Values file, one value per line (default random values only) | `--dict values.txt` |
 | `--string-min` | Random string minimum length (default 1) | `--string-min 3` |
 | `--string-max` | Random string maximum length (default 10) | `--string-max 50` |
@@ -370,7 +414,7 @@ Older spellings still work, so existing scripts don't need to change: `-remote` 
 
 ### Important Notes 🦖
 
-- **Fuzzy Means It**: Every operation in the spec gets called, `DELETE` and `PUT` included, with values that are valid on purpose. Against a real system this really changes or deletes data, so point it at a disposable environment.
+- **Fuzzy Means It**: Every operation in the spec gets called unless you [leave it out](#choosing-the-endpoints-), `DELETE` and `PUT` included, with values that are valid on purpose. Against a real system this really changes or deletes data, so point it at a disposable environment.
 - **Authentication**: Security schemes in the spec are not handled automatically. Pass your credentials with `-H`.
 - **Redirects**: They are reported as results and not followed, so a `302` shows up as a `302`, and a redirect can never take Fuzzy away from the target.
 - **Response Bodies**: The message of a result is the start of the response body (200 characters at most), or the standard status text if the body is empty.
@@ -405,7 +449,7 @@ This fuzzer is particularly useful for:
 
 ## Best Practices 🦋
 
-1. **Start Small**: Begin with a low `-n` and a small set of test values and expand gradually
+1. **Start Small**: Begin with a low `-n`, a small set of test values and a few endpoints (check them with `--list`) and expand gradually
 2. **Monitor Responses**: Pay attention to different HTTP status codes (200, 401, 403, 500)
 3. **Rate Limiting**: Lower `-c` if needed to avoid overwhelming the target
 4. **Legal Considerations**: Only test systems you own or have explicit permission to test

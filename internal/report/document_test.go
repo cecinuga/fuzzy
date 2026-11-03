@@ -59,10 +59,60 @@ func TestBothFormatsCarryTheSameInformation(t *testing.T) {
 	}
 }
 
+func TestBothFormatsShowTheSelection(t *testing.T) {
+	chosen, err := fuzzer.ParseSelection([]string{"GET /a|b/*"}, []string{"tag:slow"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := Report{Selection: chosen, LeftOut: 7, Filter: fuzzer.StatusFilter{}}
+
+	markdown := writeString(t, FormatMarkdown, r)
+	for _, want := range []string{"| **Included** |", escape("GET /a|b/*"), "| **Excluded** |", "tag:slow", "| **Endpoints left out** | 7 |"} {
+		if !strings.Contains(markdown, want) {
+			t.Errorf("Markdown lacks %q:\n%s", want, markdown)
+		}
+	}
+
+	var doc struct {
+		Overview struct {
+			Selection struct {
+				Include, Exclude []string
+				LeftOut          int `json:"endpointsLeftOut"`
+			}
+		}
+	}
+	if err := json.Unmarshal([]byte(writeString(t, FormatJSON, r)), &doc); err != nil {
+		t.Fatal(err)
+	}
+	got := doc.Overview.Selection
+	if len(got.Include) != 1 || got.Include[0] != "GET /a|b/*" || len(got.Exclude) != 1 || got.Exclude[0] != "tag:slow" || got.LeftOut != 7 {
+		t.Errorf("selection = %+v", got)
+	}
+
+	// A list that wasn't given gets no row.
+	onlyExclude, err := fuzzer.ParseSelection(nil, []string{"DELETE"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := writeString(t, FormatMarkdown, Report{Selection: onlyExclude, LeftOut: 1})
+	if strings.Contains(partial, "Included") || !strings.Contains(partial, "| **Excluded** |") {
+		t.Errorf("want only the Excluded row:\n%s", partial)
+	}
+
+	// Without a selection the Markdown report stays as it was.
+	if plain := writeString(t, FormatMarkdown, Report{}); strings.Contains(plain, "Included") {
+		t.Errorf("a run of the whole spec mentions a selection:\n%s", plain)
+	}
+}
+
 // The schema is a promise to whoever parses the report: changing this document
 // breaks them, so it must be a deliberate choice.
 func TestJSONSchema(t *testing.T) {
 	filter, err := fuzzer.ParseStatusFilter("5xx,err")
+	if err != nil {
+		t.Fatal(err)
+	}
+	selection, err := fuzzer.ParseSelection([]string{"/user/**"}, []string{"DELETE"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +125,7 @@ func TestJSONSchema(t *testing.T) {
 	}
 	got := writeString(t, FormatJSON, Report{
 		SpecTitle: "Demo", SpecVersion: "2", Remote: "http://target", Spec: "spec.json", Dictionary: "values.txt",
-		Filter: filter, Bounds: []string{"int: 0..9"},
+		Filter: filter, Selection: selection, LeftOut: 3, Bounds: []string{"int: 0..9"},
 		Seed:    18446744073709551557, // doesn't fit a double
 		Started: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Duration: 1500 * time.Millisecond,
 		Interrupted: true, Warnings: []string{"odd pattern"},
@@ -105,6 +155,15 @@ func TestJSONSchema(t *testing.T) {
       "int: 0..9"
     ],
     "statusFilter": "5xx,err",
+    "selection": {
+      "include": [
+        "/user/**"
+      ],
+      "exclude": [
+        "DELETE"
+      ],
+      "endpointsLeftOut": 3
+    },
     "seed": "18446744073709551557",
     "started": "2026-01-02T03:04:05Z",
     "duration": "1.5s",
@@ -193,6 +252,12 @@ func TestEmptyJSONReportKeepsItsShape(t *testing.T) {
 	}
 	if bounds := doc["overview"].(map[string]any)["randomBounds"]; bounds == nil {
 		t.Error("randomBounds must be an empty list, not null")
+	}
+	chosen := doc["overview"].(map[string]any)["selection"].(map[string]any)
+	for _, key := range []string{"include", "exclude"} {
+		if list, ok := chosen[key].([]any); !ok || len(list) != 0 {
+			t.Errorf("selection.%s = %#v, want an empty list", key, chosen[key])
+		}
 	}
 
 	op := &openapi.Operation{Method: "GET", Path: "/none"}

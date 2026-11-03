@@ -18,6 +18,7 @@ import (
 // Target is an operation compiled for fuzzing.
 type Target struct {
 	Op      *openapi.Operation
+	index   int // position among all compiled targets, whatever a Selection keeps
 	baseURL string
 	params  []targetParam
 	body    *targetBody
@@ -53,7 +54,7 @@ func Compile(doc *openapi.Document, gen *generator.Generator, remote *url.URL) (
 	var targets []*Target
 	var skipped []Skipped
 	for _, op := range doc.Operations {
-		t := &Target{Op: op, baseURL: root}
+		t := &Target{Op: op, index: len(targets), baseURL: root}
 		if useBasePath {
 			t.baseURL += op.BasePath
 		}

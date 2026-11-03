@@ -38,6 +38,7 @@ func TestCanonicalArgs(t *testing.T) {
 		"negative value":    {[]string{"-int-min", "-5", "-int-max=-1"}, []string{"--int-min", "-5", "--int-max=-1"}},
 		"value like a flag": {[]string{"-o", "-remote", "-spec", "s"}, []string{"-o", "-remote", "--spec", "s"}},
 		"bool takes none":   {[]string{"-k", "-remote", "x"}, []string{"-k", "--remote", "x"}},
+		"selection":         {[]string{"-include", "GET", "-exclude=/a", "-list", "-spec", "s"}, []string{"--include", "GET", "--exclude=/a", "--list", "--spec", "s"}},
 		"help":              {[]string{"-help"}, []string{"--help"}},
 		"version":           {[]string{"-version"}, []string{"--version"}},
 		"after terminator":  {[]string{"-k", "--", "-remote"}, []string{"-k", "--", "-remote"}},
@@ -143,7 +144,7 @@ func TestHelpListsEveryFlag(t *testing.T) {
 			t.Errorf("%v: exit %d, stderr %q", args, code, stderr)
 		}
 		for _, flag := range []string{
-			"--remote", "--spec", "--status", "--dict", "--string-min", "--string-max", "--int-min", "--int-max", "--float-min", "--float-max", "--charset",
+			"--remote", "--spec", "--status", "--include", "--exclude", "--list", "--dict", "--string-min", "--string-max", "--int-min", "--int-max", "--float-min", "--float-max", "--charset",
 			"-n, --requests", "-c, --concurrency", "--timeout", "-o, --output", "-H, --header", "-k, --insecure", "--seed",
 		} {
 			if !strings.Contains(stdout, flag) {

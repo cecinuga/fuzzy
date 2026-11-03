@@ -10,10 +10,10 @@ Fuzzy is a concurrent, fast, reliable and efficient HTTP API fuzzer written in G
 go build -o fuzzy ./cmd/fuzzy
 go vet ./...
 go test -race ./...
-./fuzzy --remote http://localhost:8080 --spec testdata/api.json --status 5xx,err --seed 42
+./fuzzy --remote http://localhost:8000 --spec examples/crud/artifacts/openapi.json --status 5xx,err --seed 42
 ```
 
-Requires Go 1.25.1+. Sample inputs are `testdata/api.json` (spec) and `testdata/name.txt` (dictionary). `examples/crud` is a local API that is safe to fuzz.
+Requires Go 1.25.1+. `examples/crud` is a local API that is safe to fuzz, listening on port 8000 by default, with its spec in `examples/crud/artifacts/openapi.json`.
 
 ## Architecture
 
@@ -24,7 +24,7 @@ The entry point is `cmd/fuzzy`, a Cobra root command that does the fuzzing itsel
 | `config` | Flags and their validation |
 | `openapi` | Loads the spec, resolves `$ref` and `allOf` |
 | `generator` | Turns schemas into valid values, including dictionary handling |
-| `fuzzer` | Encodes requests, runs the worker pool, filters statuses |
+| `fuzzer` | Encodes requests, selects endpoints, runs the worker pool, filters statuses |
 | `report` | Writes the Markdown or JSON report |
 
 `progress` sits beside this flow: `cmd/fuzzy` passes it the snapshots `fuzzer` emits, and it draws them on stderr: in a terminal, a status bar under the endpoints colored by state (red not tested, yellow testing, white all sent); otherwise, plain lines.
@@ -38,6 +38,8 @@ A **result** is the tuple `(endpoint, status code, message, input)`. Each endpoi
 - **Random defaults.** Strings have 1 to 10 characters, integers go from 0 to 1000, floats from 0 to 1000.0. The charset is `unicode` or `alnum`.
 - **Dictionary with a fallback.** A dictionary value is used only where the spec allows it. Anything it doesn't cover gets a random valid value.
 - **Seeds reproduce inputs at any concurrency.** Each job's random stream derives only from the seed and the job, never from scheduling.
+- **Selection doesn't change inputs.** `--include` and `--exclude` apply after `fuzzer.Compile`, and a job's stream uses its target's position among all compiled operations, so a seed replays one endpoint of a bigger run.
+- **A selector that matches nothing is an error.** A typo in an `--exclude` must not quietly call what it was meant to protect. A bad selector is an invalid argument (exit `2`), an unmatched one a run failure (exit `1`), and neither sends a request.
 - **`--status` only filters the report.** Filtered results still count in each endpoint's totals. `err` means a request got no response.
 - **Report formats stay equivalent.** Markdown (the default) and JSON render the same `document` in `internal/report`, so they share structure and information. The JSON schema is covered by a golden test: scripts depend on it.
 - **The host always comes from `--remote`.** Fuzzy never calls the server named in the spec, and redirects are reported, not followed.
