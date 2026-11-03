@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -46,6 +47,29 @@ type Progress struct {
 	ServerErrors    int // calls answered with a 5xx
 	TransportErrors int // calls that got no response
 	Elapsed         time.Duration
+
+	// Endpoints has one entry per target, in target order. The slice is reused
+	// between snapshots, so it is only valid during the Progress call.
+	Endpoints []EndpointProgress
+
+	// Final marks the last snapshot, sent once when the run ends even if it was
+	// interrupted, whatever ProgressEvery says.
+	Final bool
+}
+
+// EndpointState says how far a run has got with one endpoint.
+type EndpointState int
+
+const (
+	EndpointPending EndpointState = iota // no request sent yet
+	EndpointTesting                      // sending requests
+	EndpointDone                         // every request sent
+)
+
+// EndpointProgress is one endpoint in a Progress snapshot.
+type EndpointProgress struct {
+	Name  string // as written in the spec, so not safe to print on a terminal as is
+	State EndpointState
 }
 
 // Result is the outcome of one call: (endpoint, status code, message, input).
@@ -79,6 +103,7 @@ func Run(ctx context.Context, opts Options, targets []*Target) []Outcome {
 	client := newClient(opts)
 	jobs := make(chan job)
 	records := make(chan record, opts.Concurrency)
+	started := make([]atomic.Bool, len(targets))
 
 	// Rounds go over all targets rather than target by target, so an
 	// interrupted run still has covered every endpoint evenly.
@@ -88,6 +113,9 @@ func Run(ctx context.Context, opts Options, targets []*Target) []Outcome {
 			for i := range targets {
 				select {
 				case jobs <- job{i, iter}:
+					if iter == 0 {
+						started[i].Store(true)
+					}
 				case <-ctx.Done():
 					return
 				}
@@ -112,11 +140,11 @@ func Run(ctx context.Context, opts Options, targets []*Target) []Outcome {
 		close(records)
 	}()
 
-	return collect(records, opts, targets)
+	return collect(records, opts, targets, started)
 }
 
 // collect is the only owner of the outcomes, so they need no locking.
-func collect(records <-chan record, opts Options, targets []*Target) []Outcome {
+func collect(records <-chan record, opts Options, targets []*Target, dispatched []atomic.Bool) []Outcome {
 	outcomes := make([]Outcome, len(targets))
 	for i, t := range targets {
 		outcomes[i] = Outcome{Target: t, Counts: map[int]int{}}
@@ -130,8 +158,22 @@ func collect(records <-chan record, opts Options, targets []*Target) []Outcome {
 		tick = ticker.C
 	}
 
-	started := time.Now()
+	began := time.Now()
 	progress := Progress{Total: len(targets) * opts.Requests}
+	if opts.Progress != nil {
+		progress.Endpoints = make([]EndpointProgress, len(targets))
+		for i, t := range targets {
+			progress.Endpoints[i].Name = t.Op.Method + " " + t.Op.Path
+		}
+	}
+	report := func() {
+		progress.Elapsed = time.Since(began)
+		for i := range outcomes {
+			progress.Endpoints[i].State = endpointState(outcomes[i].Sent, opts.Requests, dispatched[i].Load())
+		}
+		opts.Progress(progress)
+	}
+
 	for {
 		select {
 		case rec, open := <-records:
@@ -139,6 +181,10 @@ func collect(records <-chan record, opts Options, targets []*Target) []Outcome {
 				for i := range outcomes {
 					// Workers finish out of order; sorting makes the report reproducible.
 					slices.SortFunc(outcomes[i].Results, func(a, b Result) int { return a.iter - b.iter })
+				}
+				if opts.Progress != nil {
+					progress.Final = true
+					report()
 				}
 				return outcomes
 			}
@@ -156,10 +202,22 @@ func collect(records <-chan record, opts Options, targets []*Target) []Outcome {
 				out.Results = append(out.Results, rec.result)
 			}
 		case <-tick:
-			progress.Elapsed = time.Since(started)
-			opts.Progress(progress)
+			report()
 		}
 	}
+}
+
+// endpointState goes by the calls completed, so an endpoint interrupted before
+// its last response never counts as done. dispatched is checked too because a
+// call in flight has no record yet.
+func endpointState(sent, requests int, dispatched bool) EndpointState {
+	switch {
+	case sent >= requests:
+		return EndpointDone
+	case sent > 0 || dispatched:
+		return EndpointTesting
+	}
+	return EndpointPending
 }
 
 func newClient(opts Options) *http.Client {

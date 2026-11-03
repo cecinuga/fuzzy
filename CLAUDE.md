@@ -10,14 +10,14 @@ Fuzzy is a concurrent, fast, reliable and efficient HTTP API fuzzer written in G
 go build -o fuzzy ./cmd/fuzzy
 go vet ./...
 go test -race ./...
-./fuzzy -remote http://localhost:8080 -spec testdata/api.json -status 5xx,err -seed 42
+./fuzzy --remote http://localhost:8080 --spec testdata/api.json --status 5xx,err --seed 42
 ```
 
 Requires Go 1.25.1+. Sample inputs are `testdata/api.json` (spec) and `testdata/name.txt` (dictionary). `examples/crud` is a local API that is safe to fuzz.
 
 ## Architecture
 
-The entry point is `cmd/fuzzy`. Data flows through the packages in `internal/` in this order:
+The entry point is `cmd/fuzzy`, a Cobra root command that does the fuzzing itself, with no `run` subcommand. Data flows through the packages in `internal/` in this order:
 
 | Package | Responsibility |
 |---|---|
@@ -27,7 +27,7 @@ The entry point is `cmd/fuzzy`. Data flows through the packages in `internal/` i
 | `fuzzer` | Encodes requests, runs the worker pool, filters statuses |
 | `report` | Writes the Markdown report |
 
-`progress` sits beside this flow: `cmd/fuzzy` passes it the snapshots `fuzzer` emits, and it draws them on stderr as a status bar in a terminal or as plain lines otherwise.
+`progress` sits beside this flow: `cmd/fuzzy` passes it the snapshots `fuzzer` emits, and it draws them on stderr: in a terminal, a status bar under the endpoints colored by state (red not tested, yellow testing, white all sent); otherwise, plain lines.
 
 A **result** is the tuple `(endpoint, status code, message, input)`. Each endpoint in the report shows its spec (HTTP verb, parameters, parameter types) and its results.
 
@@ -38,11 +38,13 @@ A **result** is the tuple `(endpoint, status code, message, input)`. Each endpoi
 - **Random defaults.** Strings have 1 to 10 characters, integers go from 0 to 1000, floats from 0 to 1000.0. The charset is `unicode` or `alnum`.
 - **Dictionary with a fallback.** A dictionary value is used only where the spec allows it. Anything it doesn't cover gets a random valid value.
 - **Seeds reproduce inputs at any concurrency.** Each job's random stream derives only from the seed and the job, never from scheduling.
-- **`-status` only filters the report.** Filtered results still count in each endpoint's totals. `err` means a request got no response.
-- **The host always comes from `-remote`.** Fuzzy never calls the server named in the spec, and redirects are reported, not followed.
+- **`--status` only filters the report.** Filtered results still count in each endpoint's totals. `err` means a request got no response.
+- **The host always comes from `--remote`.** Fuzzy never calls the server named in the spec, and redirects are reported, not followed.
+- **Old flag spellings keep working.** `canonicalArgs` in `cmd/fuzzy/args.go` turns `-remote` into `--remote` and `--n` into `-n`, because commands written for the `flag` package must not break.
+- **Exit codes are stable.** `0` when the run completes, whatever the API answered, `1` when it can't run, `2` for invalid arguments. A run failure is wrapped in `runError`; any other error counts as invalid arguments.
 - **Ctrl+C still writes the report**, marked as partial.
 - **Memory stays low on big specs**, using a bounded worker pool on a shared connection pool.
-- **No external dependencies.** `go.mod` has no requirements, and the output is a single binary.
+- **Few dependencies.** Cobra and its flag library pflag are the only direct requirements in `go.mod`. Don't add others without a strong reason, and the output stays a single binary.
 - **Only OpenAPI 3.0.x in JSON is accepted.** Swagger 2.0, OpenAPI 3.1, YAML and `$ref`s pointing outside the document are refused with an error.
 
 ## Contributing rules

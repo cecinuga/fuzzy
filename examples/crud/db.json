@@ -1,0 +1,75 @@
+{
+  "invoices": [
+    {
+      "id": 1,
+      "status": "draft",
+      "number": null,
+      "customer": "Acme Srl",
+      "currency": "EUR",
+      "issue_date": "2026-01-10",
+      "due_date": "2026-02-09",
+      "tax_rate": 22,
+      "notes": null,
+      "lines": [
+        { "description": "Consulting day", "quantity": 8, "unit_price": 7500 },
+        { "description": "Hosting", "quantity": 1, "unit_price": 2500 }
+      ]
+    },
+    {
+      "id": 2,
+      "status": "sent",
+      "number": 1,
+      "customer": "Northwind Ltd",
+      "currency": "GBP",
+      "issue_date": "2026-02-01",
+      "due_date": "2026-03-03",
+      "tax_rate": 20,
+      "notes": null,
+      "lines": [
+        { "description": "Support plan", "quantity": 3, "unit_price": 12000 }
+      ]
+    },
+    {
+      "id": 3,
+      "status": "paid",
+      "number": 2,
+      "customer": "Globex Inc",
+      "currency": "USD",
+      "issue_date": "2026-03-15",
+      "due_date": "2026-04-14",
+      "tax_rate": 8.25,
+      "notes": "Paid by bank transfer",
+      "lines": [
+        { "description": "Annual license", "quantity": 2, "unit_price": 49900 }
+      ]
+    },
+    {
+      "id": 4,
+      "status": "void",
+      "number": 3,
+      "customer": "Initech GmbH",
+      "currency": "EUR",
+      "issue_date": "2026-04-01",
+      "due_date": "2026-05-01",
+      "tax_rate": 19,
+      "notes": "Cancelled by the customer",
+      "lines": [
+        { "description": "On-site training", "quantity": 1, "unit_price": 150000 }
+      ]
+    },
+    {
+      "id": 5,
+      "status": "draft",
+      "number": null,
+      "customer": "Umbrella Srl",
+      "currency": "EUR",
+      "issue_date": "2026-05-20",
+      "due_date": "2026-05-20",
+      "tax_rate": 0,
+      "notes": null,
+      "lines": [
+        { "description": "Workshop", "quantity": 1, "unit_price": 99999 }
+      ]
+    }
+  ]
+}

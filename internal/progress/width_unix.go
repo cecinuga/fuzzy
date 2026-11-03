@@ -18,3 +18,10 @@ func terminalWidth(f *os.File) int {
 	}
 	return int(size.cols)
 }
+
+// terminalHeight returns the rows of f; ok is false if f is not a terminal.
+func terminalHeight(f *os.File) (rows int, ok bool) {
+	var size struct{ rows, cols, xpixel, ypixel uint16 }
+	_, _, errno := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&size)))
+	return int(size.rows), errno == 0 && size.rows > 0
+}

@@ -220,7 +220,7 @@ func TestEveryRequestIsValidAgainstAStrictServer(t *testing.T) {
 	defer srv.Close()
 	report := filepath.Join(t.TempDir(), "report.md")
 
-	code, stdout, stderr := runCLI(t, "-remote", srv.URL, "-spec", sampleSpec, "-n", "400", "-c", "16", "-o", report, "-seed", "1")
+	code, stdout, stderr := runCLI(t, "--remote", srv.URL, "--spec", sampleSpec, "-n", "400", "-c", "16", "-o", report, "--seed", "1")
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
@@ -265,7 +265,7 @@ func TestDictionaryValuesAreUsedAndUncoveredTypesRandomized(t *testing.T) {
 	os.WriteFile(dict, []byte("alice\nbob\n<script>\n7\n"), 0o600)
 
 	// No -n: the run grows to cover the dictionary if needed.
-	code, _, stderr := runCLI(t, "-remote", srv.URL, "-spec", spec, "-dict", dict, "-o", filepath.Join(dir, "r.md"))
+	code, _, stderr := runCLI(t, "--remote", srv.URL, "--spec", spec, "--dict", dict, "-o", filepath.Join(dir, "r.md"))
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
@@ -303,7 +303,7 @@ func TestDefaultRequestCountCoversTheDictionary(t *testing.T) {
 	dict := filepath.Join(dir, "words.txt")
 	os.WriteFile(dict, []byte(words.String()), 0o600)
 
-	code, stdout, stderr := runCLI(t, "-remote", srv.URL, "-spec", spec, "-dict", dict, "-o", filepath.Join(dir, "r.md"))
+	code, stdout, stderr := runCLI(t, "--remote", srv.URL, "--spec", spec, "--dict", dict, "-o", filepath.Join(dir, "r.md"))
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
@@ -319,7 +319,7 @@ func TestStatusFlagFiltersTheReport(t *testing.T) {
 	defer srv.Close()
 	report := filepath.Join(t.TempDir(), "report.md")
 
-	code, _, stderr := runCLI(t, "-remote", srv.URL, "-spec", sampleSpec, "-n", "20", "-status", "201,401", "-o", report)
+	code, _, stderr := runCLI(t, "--remote", srv.URL, "--spec", sampleSpec, "-n", "20", "--status", "201,401", "-o", report)
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
@@ -344,7 +344,7 @@ func TestRemoteAsHostPortReachesTheServer(t *testing.T) {
 	defer srv.Close()
 
 	hostPort := strings.TrimPrefix(srv.URL, "http://")
-	code, stdout, stderr := runCLI(t, "-remote", hostPort, "-spec", sampleSpec, "-n", "5", "-o", filepath.Join(t.TempDir(), "r.md"))
+	code, stdout, stderr := runCLI(t, "--remote", hostPort, "--spec", sampleSpec, "-n", "5", "-o", filepath.Join(t.TempDir(), "r.md"))
 	if code != exitOK {
 		t.Fatalf("exit %d: %s", code, stderr)
 	}
@@ -365,11 +365,11 @@ func TestExitCodes(t *testing.T) {
 		want string
 	}{
 		{"help", []string{"-h"}, exitOK, ""},
-		{"missing flags", nil, exitUsage, "-remote is required"},
-		{"bad status", []string{"-remote", "http://x.io", "-spec", sampleSpec, "-status", "nope"}, exitUsage, "-status"},
-		{"missing spec", []string{"-remote", "http://x.io", "-spec", filepath.Join(dir, "no.json")}, exitFailure, "read spec"},
-		{"missing dict", []string{"-remote", "http://x.io", "-spec", sampleSpec, "-dict", filepath.Join(dir, "no.txt")}, exitFailure, "read dictionary"},
-		{"bad output", []string{"-remote", "http://x.io", "-spec", sampleSpec, "-o", filepath.Join(dir, "no", "dir", "r.md")}, exitFailure, "create report"},
+		{"missing flags", nil, exitUsage, `required flag(s) "remote", "spec" not set`},
+		{"bad status", []string{"--remote", "http://x.io", "--spec", sampleSpec, "--status", "nope"}, exitUsage, "--status"},
+		{"missing spec", []string{"--remote", "http://x.io", "--spec", filepath.Join(dir, "no.json")}, exitFailure, "read spec"},
+		{"missing dict", []string{"--remote", "http://x.io", "--spec", sampleSpec, "--dict", filepath.Join(dir, "no.txt")}, exitFailure, "read dictionary"},
+		{"bad output", []string{"--remote", "http://x.io", "--spec", sampleSpec, "-o", filepath.Join(dir, "no", "dir", "r.md")}, exitFailure, "create report"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -387,7 +387,7 @@ func TestAnUnreachableTargetStillProducesAReport(t *testing.T) {
 	srv.Close()
 	report := filepath.Join(t.TempDir(), "report.md")
 
-	code, stdout, _ := runCLI(t, "-remote", remote, "-spec", sampleSpec, "-n", "1", "-o", report)
+	code, stdout, _ := runCLI(t, "--remote", remote, "--spec", sampleSpec, "-n", "1", "-o", report)
 	if code != exitOK {
 		t.Fatalf("exit %d", code)
 	}
@@ -408,7 +408,7 @@ func TestCancelledRunWritesAPartialReport(t *testing.T) {
 	defer srv.Close()
 	report := filepath.Join(t.TempDir(), "report.md")
 
-	code := run(ctx, []string{"-remote", srv.URL, "-spec", sampleSpec, "-n", "1000000", "-o", report}, io.Discard, io.Discard)
+	code := run(ctx, []string{"--remote", srv.URL, "--spec", sampleSpec, "-n", "1000000", "-o", report}, io.Discard, io.Discard)
 	if code != exitOK {
 		t.Fatalf("exit %d", code)
 	}

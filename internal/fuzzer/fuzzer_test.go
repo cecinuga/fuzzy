@@ -794,3 +794,64 @@ func TestProgressCountsTransportErrors(t *testing.T) {
 		t.Errorf("last snapshot = %+v", last)
 	}
 }
+
+func TestProgressTracksEachEndpoint(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	defer srv.Close()
+	targets, _ := compileSpec(t, srv.URL, paths(`{"/a":{"get":{"responses":{"200":{"description":"ok"}}}},"/b":{"get":{"responses":{"200":{"description":"ok"}}}}}`))
+
+	states := func(p Progress) string {
+		return fmt.Sprint(p.Endpoints[0].State, p.Endpoints[1].State)
+	}
+	var first, last string
+	var once sync.Once
+	opts := options()
+	opts.Concurrency = 1 // only /a can be dispatched while the server holds the first call
+	opts.Requests = 2
+	opts.ProgressEvery = time.Millisecond
+	opts.Progress = func(p Progress) {
+		if p.Endpoints[0].Name != "GET /a" || p.Endpoints[1].Name != "GET /b" {
+			t.Errorf("endpoints = %+v", p.Endpoints)
+		}
+		once.Do(func() {
+			first = states(p)
+			close(release)
+		})
+		if p.Final {
+			last = states(p)
+		}
+	}
+	Run(context.Background(), opts, targets)
+
+	if want := fmt.Sprint(EndpointTesting, EndpointPending); first != want {
+		t.Errorf("first snapshot = %s, want %s", first, want)
+	}
+	if want := fmt.Sprint(EndpointDone, EndpointDone); last != want {
+		t.Errorf("final snapshot = %s, want %s", last, want)
+	}
+}
+
+func TestInterruptedEndpointIsNotDone(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		if calls.Add(1) == 10 {
+			cancel()
+		}
+	}))
+	defer srv.Close()
+	targets, _ := compileSpec(t, srv.URL, paths(`{"/a":{"get":{"responses":{"200":{"description":"ok"}}}}}`))
+
+	var final Progress
+	opts := options()
+	opts.Requests = 100000
+	opts.ProgressEvery = time.Hour
+	opts.Progress = func(p Progress) { final = p }
+	Run(ctx, opts, targets)
+
+	if !final.Final || final.Endpoints[0].State != EndpointTesting {
+		t.Errorf("final snapshot = %+v, want the endpoint still testing", final)
+	}
+}

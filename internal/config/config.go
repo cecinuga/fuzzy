@@ -1,11 +1,10 @@
-// Package config turns command line arguments into a validated configuration.
+// Package config defines the command line flags and turns their values into a
+// validated configuration.
 package config
 
 import (
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"math/rand/v2"
 	"net/http"
 	"net/url"
@@ -13,11 +12,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/pflag"
+
 	"fuzzy/internal/fuzzer"
 	"fuzzy/internal/generator"
 )
 
-const DefaultRequests = 100
+const (
+	DefaultRequests = 100
+
+	defaultConcurrency = 20
+	defaultTimeout     = 10 * time.Second
+	defaultOutput      = "fuzzy-report.md"
+)
 
 // Config is everything a run needs.
 type Config struct {
@@ -35,19 +42,116 @@ type Config struct {
 	Seed        uint64
 }
 
-// headerList collects a repeatable -H flag.
-type headerList struct{ header http.Header }
+// Flags holds the flag values as typed, before validation.
+type Flags struct {
+	remote      string
+	spec        string
+	status      string
+	dict        string
+	bounds      generator.Bounds
+	requests    int
+	concurrency int
+	timeout     time.Duration
+	output      string
+	headers     []string
+	insecure    bool
+	seed        uint64
+}
 
-func (h *headerList) String() string { return "" }
+// Register defines the flags on fs, with their defaults. A word in backquotes
+// names the flag's value in the help.
+func (f *Flags) Register(fs *pflag.FlagSet) {
+	d := generator.DefaultBounds()
 
-func (h *headerList) Set(raw string) error {
-	name, value, ok := strings.Cut(raw, ":")
-	name = strings.TrimSpace(name)
-	if !ok || name == "" {
-		return fmt.Errorf("want 'Name: value', got %q", raw)
+	fs.StringVar(&f.remote, "remote", "", "API to fuzz: `url`, FQDN or host:port (required)")
+	fs.StringVar(&f.spec, "spec", "", "OpenAPI 3.0 spec, JSON `file` (required)")
+	fs.StringVar(&f.status, "status", "", "status `codes` in the report, e.g. 200,404,5xx,400-404,err (default all)")
+	fs.StringVar(&f.dict, "dict", "", "values `file`, one value per line (default random values only)")
+	fs.IntVar(&f.bounds.StringMin, "string-min", d.StringMin, "random string minimum length")
+	fs.IntVar(&f.bounds.StringMax, "string-max", d.StringMax, "random string maximum length")
+	fs.Int64Var(&f.bounds.IntMin, "int-min", d.IntMin, "random integer minimum")
+	fs.Int64Var(&f.bounds.IntMax, "int-max", d.IntMax, "random integer maximum")
+	fs.Float64Var(&f.bounds.FloatMin, "float-min", d.FloatMin, "random float minimum")
+	fs.Float64Var(&f.bounds.FloatMax, "float-max", d.FloatMax, "random float maximum")
+	fs.StringVar((*string)(&f.bounds.Charset), "charset", string(d.Charset), "random string characters: unicode or alnum")
+	fs.IntVarP(&f.requests, "requests", "n", 0, fmt.Sprintf("requests per endpoint (default %d, or the dictionary size if larger)", DefaultRequests))
+	fs.IntVarP(&f.concurrency, "concurrency", "c", defaultConcurrency, "concurrent workers")
+	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "timeout of each request")
+	fs.StringVarP(&f.output, "output", "o", defaultOutput, "markdown report `path`")
+	// An array, not a slice: a slice would split header values on their commas.
+	fs.StringArrayVarP(&f.headers, "header", "H", nil, "`header` for every request, 'Name: value' (repeatable)")
+	fs.BoolVarP(&f.insecure, "insecure", "k", false, "skip TLS certificate verification")
+	fs.Uint64Var(&f.seed, "seed", 0, "seed to reproduce a run's inputs (default random)")
+}
+
+// Config validates the flag values. Requiring a flag to be set is up to the
+// command, so here an empty value is only an invalid one.
+func (f *Flags) Config() (*Config, error) {
+	if f.spec == "" {
+		return nil, errors.New("--spec must not be empty")
 	}
-	h.header.Add(name, strings.TrimSpace(value))
-	return nil
+
+	target, err := parseRemote(f.remote)
+	if err != nil {
+		return nil, fmt.Errorf("--remote: %w", err)
+	}
+
+	filter, err := fuzzer.ParseStatusFilter(f.status)
+	if err != nil {
+		return nil, fmt.Errorf("--status: %w", err)
+	}
+
+	if err := f.bounds.Validate(); err != nil {
+		return nil, err
+	}
+
+	headers, err := parseHeaders(f.headers)
+	if err != nil {
+		return nil, fmt.Errorf("--header: %w", err)
+	}
+
+	switch {
+	case f.requests < 0:
+		return nil, fmt.Errorf("--requests must not be negative (got %d)", f.requests)
+	case f.concurrency < 1:
+		return nil, fmt.Errorf("--concurrency must be at least 1 (got %d)", f.concurrency)
+	case f.timeout <= 0:
+		return nil, fmt.Errorf("--timeout must be positive (got %s)", f.timeout)
+	}
+
+	seed := f.seed
+	if seed == 0 {
+		seed = rand.Uint64()
+	}
+
+	return &Config{
+		Remote:      target,
+		SpecPath:    f.spec,
+		DictPath:    f.dict,
+		Output:      f.output,
+		Filter:      filter,
+		Bounds:      f.bounds,
+		Requests:    f.requests,
+		Concurrency: f.concurrency,
+		Timeout:     f.timeout,
+		Insecure:    f.insecure,
+		Headers:     headers,
+		Seed:        seed,
+	}, nil
+}
+
+// parseHeaders reads 'Name: value' pairs. The value may itself contain colons.
+func parseHeaders(raw []string) (http.Header, error) {
+	headers := http.Header{}
+	for _, entry := range raw {
+		name, value, ok := strings.Cut(entry, ":")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			return nil, fmt.Errorf("want 'Name: value', got %q", entry)
+		}
+		headers.Add(name, strings.TrimSpace(value))
+	}
+	return headers, nil
 }
 
 // parseRemote accepts a full http(s) URL, an FQDN or a host:port. Without a
@@ -75,89 +179,4 @@ func parseRemote(raw string) (*url.URL, error) {
 		target.Scheme = "https"
 	}
 	return target, nil
-}
-
-// Parse reads args (without the program name). Usage goes to output. A help
-// request is reported as flag.ErrHelp.
-func Parse(args []string, output io.Writer) (*Config, error) {
-	bounds := generator.DefaultBounds()
-	headers := headerList{http.Header{}}
-
-	fs := flag.NewFlagSet("fuzzy", flag.ContinueOnError)
-	fs.SetOutput(output)
-
-	remote := fs.String("remote", "", "API to fuzz: URL, FQDN or host:port (required)")
-	spec := fs.String("spec", "", "OpenAPI 3.0 spec, JSON format (required)")
-	status := fs.String("status", "", "status codes in the report, e.g. 200,404,5xx,400-404,err (default all)")
-	dict := fs.String("dict", "", "wordlist, one value per line (default: random values only)")
-	fs.IntVar(&bounds.StringMin, "string-min", bounds.StringMin, "random string minimum length")
-	fs.IntVar(&bounds.StringMax, "string-max", bounds.StringMax, "random string maximum length")
-	fs.Int64Var(&bounds.IntMin, "int-min", bounds.IntMin, "random integer minimum")
-	fs.Int64Var(&bounds.IntMax, "int-max", bounds.IntMax, "random integer maximum")
-	fs.Float64Var(&bounds.FloatMin, "float-min", bounds.FloatMin, "random float minimum")
-	fs.Float64Var(&bounds.FloatMax, "float-max", bounds.FloatMax, "random float maximum")
-	charset := fs.String("charset", string(bounds.Charset), "random string characters: unicode or alnum")
-	requests := fs.Int("n", 0, fmt.Sprintf("requests per endpoint (default %d, or the dictionary size if larger)", DefaultRequests))
-	concurrency := fs.Int("c", 20, "concurrent workers")
-	timeout := fs.Duration("timeout", 10*time.Second, "timeout of each request")
-	reportPath := fs.String("o", "fuzzy-report.md", "markdown report path")
-	insecure := fs.Bool("k", false, "skip TLS certificate verification")
-	seed := fs.Uint64("seed", 0, "seed to reproduce a run's inputs (default random)")
-	fs.Var(&headers, "H", "header for every request, 'Name: value' (repeatable)")
-
-	if err := fs.Parse(args); err != nil {
-		return nil, err
-	}
-	if fs.NArg() > 0 {
-		return nil, fmt.Errorf("unexpected argument %q", fs.Arg(0))
-	}
-	if *remote == "" {
-		return nil, errors.New("-remote is required")
-	}
-	if *spec == "" {
-		return nil, errors.New("-spec is required")
-	}
-
-	target, err := parseRemote(*remote)
-	if err != nil {
-		return nil, fmt.Errorf("-remote: %w", err)
-	}
-
-	filter, err := fuzzer.ParseStatusFilter(*status)
-	if err != nil {
-		return nil, fmt.Errorf("-status: %w", err)
-	}
-
-	bounds.Charset = generator.Charset(*charset)
-	if err := bounds.Validate(); err != nil {
-		return nil, err
-	}
-
-	switch {
-	case *requests < 0:
-		return nil, fmt.Errorf("-n must not be negative (got %d)", *requests)
-	case *concurrency < 1:
-		return nil, fmt.Errorf("-c must be at least 1 (got %d)", *concurrency)
-	case *timeout <= 0:
-		return nil, fmt.Errorf("-timeout must be positive (got %s)", *timeout)
-	}
-
-	if *seed == 0 {
-		*seed = rand.Uint64()
-	}
-
-	return &Config{
-		Remote:      target,
-		SpecPath:    *spec,
-		DictPath:    *dict,
-		Output:      *reportPath,
-		Filter:      filter,
-		Bounds:      bounds,
-		Requests:    *requests,
-		Concurrency: *concurrency,
-		Timeout:     *timeout,
-		Insecure:    *insecure,
-		Headers:     headers.header,
-		Seed:        *seed,
-	}, nil
 }
