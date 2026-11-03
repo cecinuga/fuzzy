@@ -30,7 +30,8 @@ const spec = `{"openapi":"3.0.0","info":{"title":"Demo","version":"2"},"paths":{
 	"score":{"type":"number","minimum":0,"exclusiveMinimum":true,"multipleOf":0.5}
 }}}}}`
 
-func render(t *testing.T, handler http.HandlerFunc, status string) string {
+// runReport fuzzes the test spec against handler and returns the report's input.
+func runReport(t *testing.T, handler http.HandlerFunc, status string) Report {
 	t.Helper()
 	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
@@ -47,14 +48,18 @@ func render(t *testing.T, handler http.HandlerFunc, status string) string {
 	}
 	outcomes := fuzzer.Run(context.Background(), fuzzer.Options{Requests: 5, Concurrency: 2, Timeout: time.Second, Filter: filter}, targets)
 
-	var b strings.Builder
-	err = Write(&b, Report{
+	return Report{
 		SpecTitle: doc.Info.Title, SpecVersion: doc.Info.Version,
-		Remote: "http://target", Spec: "spec.json", Filter: filter, Bounds: "bounds-text", Seed: 77,
+		Remote: "http://target", Spec: "spec.json", Filter: filter, Bounds: []string{"string: 1..2", "int: <3|4>"}, Seed: 77,
 		Started: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Duration: 1500 * time.Millisecond,
 		Outcomes: outcomes, Skipped: skipped, Warnings: []string{"odd | pattern"},
-	})
-	if err != nil {
+	}
+}
+
+func render(t *testing.T, handler http.HandlerFunc, status string) string {
+	t.Helper()
+	var b strings.Builder
+	if err := Write(&b, FormatMarkdown, runReport(t, handler, status)); err != nil {
 		t.Fatal(err)
 	}
 	return b.String()
@@ -80,7 +85,7 @@ func TestReportDescribesEveryEndpoint(t *testing.T) {
 		"| **Duration** | 1.5s |",
 		"| **Requests sent** | 15 |",
 		"| **Dictionary** | none (random values) |",
-		"bounds-text",
+		`| **Random bounds** | <ul><li>string: 1..2</li><li>int: &lt;3\|4&gt;</li></ul> |`, // a sub list, its items escaped
 
 		"## GET /user/{id}",
 		"- **HTTP verb:** GET",
@@ -168,7 +173,7 @@ func TestHostileResponseCannotBreakTheDocument(t *testing.T) {
 func TestInterruptedAndSkippedAreVisible(t *testing.T) {
 	var b strings.Builder
 	op := &openapi.Operation{Method: "POST", Path: "/legacy"}
-	err := Write(&b, Report{Interrupted: true, Skipped: []fuzzer.Skipped{{Op: op, Reason: "no supported media type"}}})
+	err := Write(&b, FormatMarkdown, Report{Interrupted: true, Skipped: []fuzzer.Skipped{{Op: op, Reason: "no supported media type"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,8 +181,10 @@ func TestInterruptedAndSkippedAreVisible(t *testing.T) {
 }
 
 func TestWriteReportsWriterErrors(t *testing.T) {
-	if err := Write(failingWriter{}, Report{}); err == nil {
-		t.Error("a failed write must not pass silently")
+	for _, format := range []Format{FormatMarkdown, FormatJSON} {
+		if err := Write(failingWriter{}, format, Report{}); err == nil {
+			t.Errorf("%s: a failed write must not pass silently", format)
+		}
 	}
 }
 

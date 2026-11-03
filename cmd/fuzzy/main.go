@@ -1,5 +1,5 @@
 // Command fuzzy sends schema-valid requests to every endpoint of an OpenAPI 3.0
-// spec and writes what came back to a Markdown report.
+// spec and writes what came back to a Markdown or JSON report.
 package main
 
 import (

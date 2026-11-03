@@ -136,7 +136,7 @@ With a dictionary, Fuzzy reads one value per line and works out the types each l
 ```
 [+] fuzzing 6 endpoints of http://localhost:8080, 100 requests each (seed 42)
 ⠹ [██████████░░░░░░░░░░]  52% 312/600 req · 287 req/s · ETA 1s · 5xx 17 · err 0
-[+] 600 requests sent, 0 without a response. Report: fuzzy-report.md
+[+] 600 requests sent, 0 without a response. Report: /home/you/fuzzy/fuzzy-report.md
 ```
 
 **Report** (`fuzzy-report.md`), first an overview and a summary:

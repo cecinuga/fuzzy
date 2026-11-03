@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/spf13/pflag"
+
+	"fuzzy/internal/report"
 )
 
 // parse runs args through the real flag definitions and their validation.
@@ -33,6 +35,34 @@ func TestParseDefaults(t *testing.T) {
 	}
 	if !cfg.Filter.Match(204) || !cfg.Filter.Match(500) {
 		t.Error("by default every status is reported")
+	}
+	if cfg.Format != report.FormatMarkdown {
+		t.Errorf("default format = %q, want markdown", cfg.Format)
+	}
+}
+
+func TestReportFormatAndOutput(t *testing.T) {
+	cases := map[string]struct {
+		args   []string
+		format report.Format
+		output string
+	}{
+		"default":           {nil, report.FormatMarkdown, "fuzzy-report.md"},
+		"markdown":          {[]string{"--format", "markdown"}, report.FormatMarkdown, "fuzzy-report.md"},
+		"json":              {[]string{"--format", "json"}, report.FormatJSON, "fuzzy-report.json"},
+		"json to a path":    {[]string{"--format", "json", "-o", "out.txt"}, report.FormatJSON, "out.txt"},
+		"path keeps format": {[]string{"-o", "out.json"}, report.FormatMarkdown, "out.json"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cfg, err := parse(append([]string{"--remote", "http://x.io", "--spec", "s.json"}, tc.args...)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Format != tc.format || cfg.Output != tc.output {
+				t.Errorf("format %q, output %q, want %q, %q", cfg.Format, cfg.Output, tc.format, tc.output)
+			}
+		})
 	}
 }
 
@@ -137,6 +167,7 @@ func TestParseRejectsBadInput(t *testing.T) {
 		"negative n":    {with("-n", "-1"), "--requests"},
 		"zero workers":  {with("-c", "0"), "--concurrency"},
 		"zero timeout":  {with("--timeout", "0s"), "--timeout"},
+		"bad format":    {with("--format", "xml"), "--format"},
 		"bad header":    {with("-H", "nocolon"), "Name: value"},
 		"empty header":  {with("-H", ": v"), "Name: value"},
 		"non-numeric n": {with("-n", "many"), "invalid argument"},

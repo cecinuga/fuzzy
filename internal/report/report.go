@@ -1,4 +1,4 @@
-// Package report renders the outcome of a run as a Markdown document.
+// Package report renders the outcome of a run as a Markdown or JSON document.
 package report
 
 import (
@@ -19,6 +19,31 @@ import (
 
 const maxDescribeDepth = 4
 
+// Format is the file format of a report.
+type Format string
+
+const (
+	FormatMarkdown Format = "markdown"
+	FormatJSON     Format = "json"
+)
+
+// ParseFormat returns the format with this name.
+func ParseFormat(name string) (Format, error) {
+	switch format := Format(name); format {
+	case FormatMarkdown, FormatJSON:
+		return format, nil
+	}
+	return "", fmt.Errorf("unknown format %q (want %s or %s)", name, FormatMarkdown, FormatJSON)
+}
+
+// Extension returns the file extension of the format, with its dot.
+func (f Format) Extension() string {
+	if f == FormatJSON {
+		return ".json"
+	}
+	return ".md"
+}
+
 // Report is the input of Write.
 type Report struct {
 	SpecTitle   string
@@ -27,7 +52,7 @@ type Report struct {
 	Spec        string
 	Dictionary  string
 	Filter      fuzzer.StatusFilter
-	Bounds      string
+	Bounds      []string // one entry per data type
 	Seed        uint64
 	Started     time.Time
 	Duration    time.Duration
@@ -37,31 +62,51 @@ type Report struct {
 	Skipped     []fuzzer.Skipped
 }
 
-// Write renders the report to w. Everything that comes from the remote or the
-// spec passes through escape, so a response cannot break out of its table cell
-// or inject markup into the document.
-func Write(w io.Writer, r Report) error {
+// Write renders the report to w in the given format.
+func Write(w io.Writer, format Format, r Report) error {
+	switch format {
+	case FormatMarkdown:
+		return writeMarkdown(w, newDocument(r))
+	case FormatJSON:
+		return writeJSON(w, newDocument(r))
+	}
+	return fmt.Errorf("unknown report format %q", format)
+}
+
+// writeJSON keeps <, > and & as they are: the report is not meant to be embedded
+// in a page, and the inputs that triggered a result should stay readable.
+func writeJSON(w io.Writer, doc document) error {
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	return encoder.Encode(doc)
+}
+
+// writeMarkdown renders the document. Everything that comes from the remote or
+// the spec passes through escape, so a response cannot break out of its table
+// cell or inject markup into the document.
+func writeMarkdown(w io.Writer, doc document) error {
 	var b strings.Builder
 
 	b.WriteString("# Fuzzy report\n\n")
-	if r.Interrupted {
+	if doc.Interrupted {
 		b.WriteString("> ⚠️ The run was interrupted: these results are partial.\n\n")
 	}
-	writeOverview(&b, r)
-	writeSummary(&b, r)
-	for i := range r.Outcomes {
-		writeEndpoint(&b, &r.Outcomes[i], r.Filter)
+	writeOverview(&b, doc.Overview)
+	writeSummary(&b, doc.Summary)
+	for i := range doc.Endpoints {
+		writeEndpoint(&b, &doc.Endpoints[i])
 	}
-	if len(r.Skipped) > 0 {
+	if len(doc.Skipped) > 0 {
 		b.WriteString("## Skipped endpoints\n\n| Endpoint | Reason |\n|---|---|\n")
-		for _, s := range r.Skipped {
-			fmt.Fprintf(&b, "| %s %s | %s |\n", s.Op.Method, escape(s.Op.Path), escape(s.Reason))
+		for _, s := range doc.Skipped {
+			fmt.Fprintf(&b, "| %s | %s |\n", escape(s.Endpoint), escape(s.Reason))
 		}
 		b.WriteString("\n")
 	}
-	if len(r.Warnings) > 0 {
+	if len(doc.Warnings) > 0 {
 		b.WriteString("## Warnings\n\n")
-		for _, warning := range r.Warnings {
+		for _, warning := range doc.Warnings {
 			fmt.Fprintf(&b, "- %s\n", escape(warning))
 		}
 		b.WriteString("\n")
@@ -71,98 +116,87 @@ func Write(w io.Writer, r Report) error {
 	return err
 }
 
-func writeOverview(b *strings.Builder, r Report) {
-	sent, kept := 0, 0
-	for i := range r.Outcomes {
-		sent += r.Outcomes[i].Sent
-		kept += len(r.Outcomes[i].Results)
-	}
-	dictionary := r.Dictionary
+func writeOverview(b *strings.Builder, o overview) {
+	dictionary := o.Dictionary
 	if dictionary == "" {
 		dictionary = "none (random values)"
 	}
 
 	b.WriteString("| | |\n|---|---|\n")
 	for _, row := range [][2]string{
-		{"Target", r.Remote},
-		{"Spec", fmt.Sprintf("%s (%s %s)", r.Spec, r.SpecTitle, r.SpecVersion)},
-		{"Dictionary", dictionary},
-		{"Random bounds", r.Bounds},
-		{"Status filter", r.Filter.String()},
-		{"Seed", strconv.FormatUint(r.Seed, 10)},
-		{"Started", r.Started.Format(time.RFC3339)},
-		{"Duration", r.Duration.Round(time.Millisecond).String()},
-		{"Requests sent", strconv.Itoa(sent)},
-		{"Results reported", strconv.Itoa(kept)},
+		{"Target", escape(o.Target)},
+		{"Spec", escape(fmt.Sprintf("%s (%s %s)", o.Spec.Path, o.Spec.Title, o.Spec.Version))},
+		{"Dictionary", escape(dictionary)},
+		{"Random bounds", cellList(o.Bounds)},
+		{"Status filter", escape(o.Filter)},
+		{"Seed", strconv.FormatUint(o.Seed, 10)},
+		{"Started", o.Started},
+		{"Duration", o.Duration},
+		{"Requests sent", strconv.Itoa(o.RequestsSent)},
+		{"Results reported", strconv.Itoa(o.ResultsReported)},
 	} {
-		fmt.Fprintf(b, "| **%s** | %s |\n", row[0], escape(row[1]))
+		fmt.Fprintf(b, "| **%s** | %s |\n", row[0], row[1])
 	}
 	b.WriteString("\n")
 }
 
-func writeSummary(b *strings.Builder, r Report) {
+// cellList renders items as a list inside a table cell. It has to be HTML:
+// Markdown lists can't span the lines of a table row.
+func cellList(items []string) string {
+	var b strings.Builder
+	b.WriteString("<ul>")
+	for _, item := range items {
+		fmt.Fprintf(&b, "<li>%s</li>", escape(item))
+	}
+	b.WriteString("</ul>")
+	return b.String()
+}
+
+func writeSummary(b *strings.Builder, rows []summaryRow) {
 	b.WriteString("## Summary\n\n| Endpoint | Sent | Reported | Status codes |\n|---|---|---|---|\n")
-	for i := range r.Outcomes {
-		o := &r.Outcomes[i]
-		fmt.Fprintf(b, "| %s %s | %d | %d | %s |\n",
-			o.Target.Op.Method, escape(o.Target.Op.Path), o.Sent, len(o.Results), countsLine(o.Counts))
+	for _, row := range rows {
+		fmt.Fprintf(b, "| %s | %d | %d | %s |\n", escape(row.Endpoint), row.Sent, row.Reported, countsLine(row.StatusCodes))
 	}
 	b.WriteString("\n")
 }
 
-func writeEndpoint(b *strings.Builder, o *fuzzer.Outcome, filter fuzzer.StatusFilter) {
-	op := o.Target.Op
-	fmt.Fprintf(b, "## %s %s\n\n", op.Method, escape(op.Path))
-	if op.Summary != "" {
-		fmt.Fprintf(b, "%s\n\n", escape(op.Summary))
+func writeEndpoint(b *strings.Builder, e *endpoint) {
+	fmt.Fprintf(b, "## %s %s\n\n", e.Method, escape(e.Path))
+	if e.Summary != "" {
+		fmt.Fprintf(b, "%s\n\n", escape(e.Summary))
 	}
-	fmt.Fprintf(b, "- **HTTP verb:** %s\n- **Path:** %s\n", op.Method, escape(op.BasePath+op.Path))
-	if op.OperationID != "" {
-		fmt.Fprintf(b, "- **Operation ID:** %s\n", escape(op.OperationID))
+	fmt.Fprintf(b, "- **HTTP verb:** %s\n- **Path:** %s\n", e.Method, escape(e.FullPath))
+	if e.OperationID != "" {
+		fmt.Fprintf(b, "- **Operation ID:** %s\n", escape(e.OperationID))
 	}
 	b.WriteString("\n")
 
-	writeParameters(b, op)
+	writeParameters(b, e.Parameters)
 
+	res := &e.Results
 	fmt.Fprintf(b, "### Results\n\n%d sent, %d reported (filter: %s). Status codes: %s.\n\n",
-		o.Sent, len(o.Results), escape(filter.String()), countsLine(o.Counts))
-	if len(o.Results) == 0 {
+		res.Sent, res.Reported, escape(res.Filter), countsLine(res.StatusCodes))
+	if len(res.Items) == 0 {
 		return
 	}
 	b.WriteString("| Endpoint | Status | Message | Input |\n|---|---|---|---|\n")
-	for _, res := range o.Results {
+	for _, item := range res.Items {
 		fmt.Fprintf(b, "| %s | %s | %s | %s |\n",
-			escape(res.Endpoint), statusLabel(res.Status), escape(res.Message), escape(res.Input))
+			escape(item.Endpoint), statusLabel(int(item.Status)), escape(item.Message), escape(item.Input))
 	}
 	b.WriteString("\n")
 }
 
-func writeParameters(b *strings.Builder, op *openapi.Operation) {
-	type row struct{ name, in, kind, required, constraints string }
-	var rows []row
-
-	for _, p := range op.Parameters {
-		rows = append(rows, row{p.Name, p.In, typeName(p.Schema, 0), yesNo(p.Required), constraints(p.Schema)})
-	}
-	if op.RequestBody != nil {
-		for _, contentType := range slices.Sorted(maps.Keys(op.RequestBody.Content)) {
-			schema := op.RequestBody.Content[contentType].Schema
-			rows = append(rows, row{"(body)", contentType, typeName(schema, 0), yesNo(op.RequestBody.Required), constraints(schema)})
-			flattenProperties(schema, "", map[*openapi.Schema]bool{}, func(name string, s *openapi.Schema, required bool) {
-				rows = append(rows, row{name, contentType, typeName(s, 0), yesNo(required), constraints(s)})
-			})
-		}
-	}
-
+func writeParameters(b *strings.Builder, params []parameter) {
 	b.WriteString("### Parameters\n\n")
-	if len(rows) == 0 {
+	if len(params) == 0 {
 		b.WriteString("None.\n\n")
 		return
 	}
 	b.WriteString("| Name | In | Type | Required | Constraints |\n|---|---|---|---|---|\n")
-	for _, r := range rows {
+	for _, p := range params {
 		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n",
-			escape(r.name), escape(r.in), escape(r.kind), r.required, escape(r.constraints))
+			escape(p.Name), escape(p.In), escape(p.Type), yesNo(p.Required), escape(p.Constraints))
 	}
 	b.WriteString("\n")
 }

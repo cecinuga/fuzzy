@@ -16,6 +16,7 @@ import (
 
 	"fuzzy/internal/fuzzer"
 	"fuzzy/internal/generator"
+	"fuzzy/internal/report"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 
 	defaultConcurrency = 20
 	defaultTimeout     = 10 * time.Second
-	defaultOutput      = "fuzzy-report.md"
+	defaultOutputName  = "fuzzy-report" // the extension comes from the format
 )
 
 // Config is everything a run needs.
@@ -32,6 +33,7 @@ type Config struct {
 	SpecPath    string
 	DictPath    string
 	Output      string
+	Format      report.Format
 	Filter      fuzzer.StatusFilter
 	Bounds      generator.Bounds
 	Requests    int // 0 means: DefaultRequests, or the dictionary size if larger
@@ -53,6 +55,7 @@ type Flags struct {
 	concurrency int
 	timeout     time.Duration
 	output      string
+	format      string
 	headers     []string
 	insecure    bool
 	seed        uint64
@@ -77,7 +80,8 @@ func (f *Flags) Register(fs *pflag.FlagSet) {
 	fs.IntVarP(&f.requests, "requests", "n", 0, fmt.Sprintf("requests per endpoint (default %d, or the dictionary size if larger)", DefaultRequests))
 	fs.IntVarP(&f.concurrency, "concurrency", "c", defaultConcurrency, "concurrent workers")
 	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "timeout of each request")
-	fs.StringVarP(&f.output, "output", "o", defaultOutput, "markdown report `path`")
+	fs.StringVarP(&f.output, "output", "o", "", "report `path` (default "+defaultOutputName+report.FormatMarkdown.Extension()+", or "+defaultOutputName+report.FormatJSON.Extension()+" with --format json)")
+	fs.StringVar(&f.format, "format", string(report.FormatMarkdown), "report format: markdown or json")
 	// An array, not a slice: a slice would split header values on their commas.
 	fs.StringArrayVarP(&f.headers, "header", "H", nil, "`header` for every request, 'Name: value' (repeatable)")
 	fs.BoolVarP(&f.insecure, "insecure", "k", false, "skip TLS certificate verification")
@@ -99,6 +103,16 @@ func (f *Flags) Config() (*Config, error) {
 	filter, err := fuzzer.ParseStatusFilter(f.status)
 	if err != nil {
 		return nil, fmt.Errorf("--status: %w", err)
+	}
+
+	format, err := report.ParseFormat(f.format)
+	if err != nil {
+		return nil, fmt.Errorf("--format: %w", err)
+	}
+
+	output := f.output
+	if output == "" {
+		output = defaultOutputName + format.Extension()
 	}
 
 	if err := f.bounds.Validate(); err != nil {
@@ -128,7 +142,8 @@ func (f *Flags) Config() (*Config, error) {
 		Remote:      target,
 		SpecPath:    f.spec,
 		DictPath:    f.dict,
-		Output:      f.output,
+		Output:      output,
+		Format:      format,
 		Filter:      filter,
 		Bounds:      f.bounds,
 		Requests:    f.requests,

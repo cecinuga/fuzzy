@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"fuzzy/internal/config"
@@ -67,7 +68,7 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 	display.Finish()
 
 	buffered := bufio.NewWriter(out)
-	err = report.Write(buffered, report.Report{
+	err = report.Write(buffered, cfg.Format, report.Report{
 		SpecTitle:   doc.Info.Title,
 		SpecVersion: doc.Info.Version,
 		Remote:      cfg.Remote.String(),
@@ -98,11 +99,24 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 		sent += outcomes[i].Sent
 		failed += outcomes[i].Counts[fuzzer.TransportError]
 	}
-	fmt.Fprintf(stdout, "[+] %d requests sent, %d without a response. Report: %s\n", sent, failed, cfg.Output)
+	fmt.Fprintf(stdout, "[+] %d requests sent, %d without a response. Report: %s\n", sent, failed, absolutePath(cfg.Output))
 	return nil
 }
 
-func describeBounds(b generator.Bounds) string {
-	return fmt.Sprintf("string length %d..%d (%s), int %d..%d, float %g..%g",
-		b.StringMin, b.StringMax, b.Charset, b.IntMin, b.IntMax, b.FloatMin, b.FloatMax)
+// absolutePath returns path made absolute, or as given if the working directory
+// can't be determined: the report is already written, so that must not fail the run.
+func absolutePath(path string) string {
+	if abs, err := filepath.Abs(path); err == nil {
+		return abs
+	}
+	return path
+}
+
+// describeBounds returns the random limits of each data type, one entry per type.
+func describeBounds(b generator.Bounds) []string {
+	return []string{
+		fmt.Sprintf("string: length %d..%d (%s)", b.StringMin, b.StringMax, b.Charset),
+		fmt.Sprintf("int: %d..%d", b.IntMin, b.IntMax),
+		fmt.Sprintf("float: %g..%g", b.FloatMin, b.FloatMax),
+	}
 }

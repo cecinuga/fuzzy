@@ -8,10 +8,12 @@ import (
 
 	"fuzzy/internal/config"
 	"fuzzy/internal/generator"
+	"fuzzy/internal/report"
 )
 
 const longDescription = `Fuzzy sends schema-valid requests, with random or dictionary values, to every
-endpoint of an OpenAPI 3.0 spec and writes what came back to a Markdown report.
+endpoint of an OpenAPI 3.0 spec and writes what came back to a Markdown or JSON
+report.
 
 Fuzzy calls every operation with valid values, DELETE and PUT included, so it
 really changes or deletes data. Only run it against disposable or local targets
@@ -22,6 +24,9 @@ const examples = `  # Keep only server errors and requests that got no response
 
   # Authenticated API, with a dictionary
   fuzzy --remote https://api.example.com/v3 --spec api.json --dict values.txt -H "Authorization: Bearer $TOKEN"
+
+  # A JSON report, for scripts and CI
+  fuzzy --remote http://localhost:8080 --spec api.json --format json
 
   # Shell completion, see 'fuzzy completion --help'
   fuzzy completion bash`
@@ -69,6 +74,10 @@ func newRootCommand() *cobra.Command {
 		cmd.MarkFlagFilename("spec", "json"),
 		cmd.RegisterFlagCompletionFunc("remote", cobra.NoFileCompletions),
 		cmd.RegisterFlagCompletionFunc("status", cobra.NoFileCompletions),
+		cmd.RegisterFlagCompletionFunc("format", cobra.FixedCompletions(
+			[]string{string(report.FormatMarkdown), string(report.FormatJSON)},
+			cobra.ShellCompDirectiveNoFileComp,
+		)),
 		cmd.RegisterFlagCompletionFunc("charset", cobra.FixedCompletions(
 			[]string{string(generator.CharsetUnicode), string(generator.CharsetAlnum)},
 			cobra.ShellCompDirectiveNoFileComp,

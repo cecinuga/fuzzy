@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 )
@@ -169,10 +173,119 @@ func TestShellCompletion(t *testing.T) {
 			t.Errorf("stdout = %q", stdout)
 		}
 	})
+	t.Run("format values", func(t *testing.T) {
+		_, stdout, _ := runCLI(t, "__complete", "--format", "")
+		if !strings.Contains(stdout, "markdown") || !strings.Contains(stdout, "json") {
+			t.Errorf("stdout = %q", stdout)
+		}
+	})
 	t.Run("partial flag name", func(t *testing.T) {
 		_, stdout, _ := runCLI(t, "__complete", "--c")
 		if !strings.Contains(stdout, "--charset") || !strings.Contains(stdout, "--concurrency") {
 			t.Errorf("stdout = %q", stdout)
 		}
 	})
+}
+
+func TestFinalLineShowsTheAbsoluteReportPath(t *testing.T) {
+	spec := writeSpec(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	cases := map[string]string{
+		"relative": "r.md",
+		"absolute": filepath.Join(dir, "r.md"),
+	}
+	for name, output := range cases {
+		t.Run(name, func(t *testing.T) {
+			code, stdout, stderr := runCLI(t, "--remote", srv.URL, "--spec", spec, "-n", "1", "-o", output)
+			if code != exitOK {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			if want := "Report: " + filepath.Join(dir, "r.md") + "\n"; !strings.HasSuffix(stdout, want) {
+				t.Errorf("stdout = %q, want it to end with %q", stdout, want)
+			}
+		})
+	}
+}
+
+func TestFormatFlagPicksTheReportFormat(t *testing.T) {
+	spec := writeSpec(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	cases := map[string]struct {
+		args []string
+		file string
+		json bool
+	}{
+		"default":        {nil, "fuzzy-report.md", false},
+		"markdown":       {[]string{"--format", "markdown"}, "fuzzy-report.md", false},
+		"json":           {[]string{"--format", "json"}, "fuzzy-report.json", true},
+		"old spelling":   {[]string{"-format", "json"}, "fuzzy-report.json", true},
+		"explicit path":  {[]string{"--format=json", "-o", "custom.out"}, "custom.out", true},
+		"path no format": {[]string{"-o", "custom.json"}, "custom.json", false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			t.Chdir(dir)
+
+			args := append([]string{"--remote", srv.URL, "--spec", spec, "-n", "2"}, tc.args...)
+			code, stdout, stderr := runCLI(t, args...)
+			if code != exitOK {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			if want := "Report: " + filepath.Join(dir, tc.file) + "\n"; !strings.HasSuffix(stdout, want) {
+				t.Errorf("stdout = %q, want it to end with %q", stdout, want)
+			}
+
+			data, err := os.ReadFile(tc.file)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.json != json.Valid(data) {
+				t.Errorf("JSON expected: %v, got:\n%s", tc.json, data)
+			}
+			if !tc.json && !strings.HasPrefix(string(data), "# Fuzzy report") {
+				t.Errorf("not a Markdown report:\n%s", data)
+			}
+		})
+	}
+}
+
+func TestBadFormatIsAUsageErrorAndWritesNothing(t *testing.T) {
+	t.Chdir(t.TempDir())
+
+	code, _, stderr := runCLI(t, "--remote", "http://localhost:1", "--spec", writeSpec(t), "--format", "xml")
+	if code != exitUsage || !strings.Contains(stderr, "--format") {
+		t.Errorf("exit %d, stderr %q", code, stderr)
+	}
+	if entries, _ := os.ReadDir("."); len(entries) != 0 {
+		t.Errorf("no report should be created, found %v", entries)
+	}
+}
+
+func TestCancelledRunMarksTheJSONReportAsPartial(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var once sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) { once.Do(cancel) }))
+	defer srv.Close()
+	output := filepath.Join(t.TempDir(), "r.json")
+
+	args := []string{"--remote", srv.URL, "--spec", writeSpec(t), "-n", "1000000", "--format", "json", "-o", output}
+	if code := run(ctx, args, io.Discard, io.Discard); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	data, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct{ Interrupted bool }
+	if err := json.Unmarshal(data, &doc); err != nil || !doc.Interrupted {
+		t.Errorf("interrupted = %v, err = %v:\n%s", doc.Interrupted, err, data)
+	}
 }
