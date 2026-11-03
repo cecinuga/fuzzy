@@ -59,10 +59,10 @@ The body matches the schema in every field, so it got past validation and reache
 | What | Result |
 |---|---|
 | Speed | 120,000 requests in 20.9 s, about 5,700 req/s |
-| Peak memory | 17 MB, at both 6,000 and 120,000 requests |
+| Peak memory | 19 MB, at both 6,000 and 120,000 requests |
 | Requests rejected as invalid (`422`) | 0 of 120,000 |
 | Same seed at `-c 1` and `-c 50` | 600 of 600 inputs identical |
-| Binary size | 13 MB |
+| Binary size | 14.6 MB |
 
 These come from one Linux machine, fuzzing the in-memory `examples/crud` API on localhost with `-c 20 --status 5xx,err`. A real API will set its own pace. Results that pass `--status` stay in memory for the whole run, so a run that keeps every result uses more.
 
@@ -330,7 +330,7 @@ A time goes from sending the request to reading the response, up to 1 MiB of its
 ```
 
 ```
-time=2026-01-02T03:04:05.712+01:00 level=INFO msg="run started" target=http://localhost:8080 spec=api.json seed=42 endpoints=6 requests=100 concurrency=20 timeout=10s
+time=2026-01-02T03:04:05.712+01:00 level=INFO msg="run started" target=http://localhost:8080 spec=api.json format="openapi 3.0.3" seed=42 endpoints=6 requests=100 concurrency=20 timeout=10s
 time=2026-01-02T03:04:05.734+01:00 level=INFO msg=request endpoint="GET /v1/user/12" status=404 duration=1.2ms message="Not Found" input="{\"path\":{\"id\":12}}"
 time=2026-01-02T03:04:05.735+01:00 level=ERROR msg=request endpoint="GET /v1/user/427" status=500 duration=12.3ms message="{\"error\":\"db timeout\"}" input="{\"path\":{\"id\":427}}"
 time=2026-01-02T03:04:06.018+01:00 level=INFO msg="run finished" sent=600 failed=0 interrupted=false duration=305ms report=/home/you/fuzzy/fuzzy-report.md
@@ -432,10 +432,10 @@ This example shows what a finding looks like, on an illustrative API with a bug 
 ```markdown
 ## Summary
 
-| Endpoint | Sent | Reported | Status codes |
-|---|---|---|---|
-| POST /login | 100 | 0 | 200 ×100 |
-| GET /user/{id} | 100 | 17 | 404 ×83, 500 ×17 |
+| Endpoint | Sent | Reported | Status codes | Response time |
+|---|---|---|---|---|
+| POST /login | 100 | 0 | 200 ×100 | mean 3.2 ms, p95 7.1 ms, max 12.4 ms |
+| GET /user/{id} | 100 | 17 | 404 ×83, 500 ×17 | mean 8.1 ms, p95 21.9 ms, max 41.7 ms |
 ```
 
 Then a section for each endpoint with its spec and results, including the exact input behind each failure:
@@ -460,10 +460,12 @@ Fetch a user
 
 100 sent, 17 reported (filter: 5xx,err). Status codes: 404 ×83, 500 ×17.
 
-| Endpoint | Status | Message | Input |
-|---|---|---|---|
-| GET /v1/user/427 | 500 | {"error":"db timeout"} | {"path":{"id":427}} |
-| GET /v1/user/98 | 500 | {"error":"db timeout"} | {"header":{"X-Request-Id":"c8ac4929-b19e-4fe3-ba2f-b60236b4d4e0"},"path":{"id":98},"query":{"fields":\["age","name","email"\]}} |
+Response time: min 1.2 ms, mean 8.1 ms, p50 6.5 ms, p95 21.9 ms, p99 39.9 ms, max 41.7 ms (100 responses).
+
+| Endpoint | Status | Message | Input | Time |
+|---|---|---|---|---|
+| GET /v1/user/427 | 500 | {"error":"db timeout"} | {"path":{"id":427}} | 12.345 ms |
+| GET /v1/user/98 | 500 | {"error":"db timeout"} | {"header":{"X-Request-Id":"c8ac4929-b19e-4fe3-ba2f-b60236b4d4e0"},"path":{"id":98},"query":{"fields":\["age","name","email"\]}} | 9.871 ms |
 ```
 
 Requests that got no response appear with status `ERR` and the failure as their message.
@@ -587,10 +589,12 @@ Fuzzy really changes or deletes data, so only test systems you own or have expli
 fuzzy/
 ├── README.md            # This documentation
 ├── CLAUDE.md            # Project guidance for Claude Code
+├── ASSESSMENT.md        # Audit findings still open
 ├── go.mod, go.sum       # Go module definition and checksums
 ├── assets/              # Project logo and Fuzzy's character description
 ├── cmd/fuzzy/           # The Cobra command line and the run pipeline
 ├── examples/crud/       # Local CRUD invoice API to try Fuzzy on
+├── testdata/            # Sample spec the tests read
 └── internal/
     ├── config/          # Flags and their validation
     ├── openapi/         # Loads the spec, converts Swagger 2.0, resolves $ref and allOf
