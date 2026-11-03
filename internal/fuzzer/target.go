@@ -34,6 +34,7 @@ type targetBody struct {
 	kind        bodyKind
 	binary      map[string]bool               // multipart fields sent as file parts
 	fields      map[string]*openapi.Parameter // form fields with a declared encoding
+	xml         *xmlBody                      // how to write an XML body
 	source      generator.Source
 }
 
@@ -61,7 +62,7 @@ func Compile(doc *openapi.Document, gen *generator.Generator, remote *url.URL) (
 			t.params = append(t.params, targetParam{p, gen.Compile(p.Schema, locationOf(p))})
 		}
 		if op.RequestBody != nil {
-			body, err := compileBody(op.RequestBody, gen)
+			body, err := compileBody(op, gen)
 			if err != nil && op.RequestBody.Required {
 				skipped = append(skipped, Skipped{op, err.Error()})
 				continue
@@ -83,7 +84,8 @@ func locationOf(p *openapi.Parameter) generator.Location {
 	return generator.InQuery
 }
 
-func compileBody(b *openapi.RequestBody, gen *generator.Generator) (*targetBody, error) {
+func compileBody(op *openapi.Operation, gen *generator.Generator) (*targetBody, error) {
+	b := op.RequestBody
 	best := ""
 	var bestKind bodyKind
 	bestRank := -1
@@ -113,8 +115,11 @@ func compileBody(b *openapi.RequestBody, gen *generator.Generator) (*targetBody,
 			}
 		}
 	}
+	if bestKind == bodyXML {
+		body.xml = newXMLBody(op, best, media)
+	}
 	loc := generator.InBody
-	if bestKind == bodyForm || bestKind == bodyRaw {
+	if bestKind == bodyForm || bestKind == bodyRaw || bestKind == bodyXML {
 		loc = generator.InQuery // like query parameters, these cannot represent null
 	}
 	body.source = gen.Compile(schema, loc)
@@ -128,7 +133,7 @@ func sortedContentTypes(content map[string]*openapi.MediaType) []string {
 // build generates one request. Equal r and iter yield equal input.
 func (t *Target) build(ctx context.Context, r *rand.Rand, iter int) (*http.Request, string, error) {
 	path := t.Op.Path
-	var input strings.Builder
+	input := requestInput{}
 	var query []string
 	headers := make(http.Header)
 
@@ -138,7 +143,7 @@ func (t *Target) build(ctx context.Context, r *rand.Rand, iter int) (*http.Reque
 			continue
 		}
 		v := p.source.Generate(r, iter)
-		writeInput(&input, p.Name, v)
+		input.addParam(p.In, p.Name, v)
 
 		switch p.In {
 		case "path":
@@ -155,11 +160,11 @@ func (t *Target) build(ctx context.Context, r *rand.Rand, iter int) (*http.Reque
 	var body []byte
 	if t.body != nil && (t.body.required || r.IntN(4) != 0) {
 		v := t.body.source.Generate(r, iter)
-		writeInput(&input, "body", v)
+		input["body"] = v
 
 		encoded, contentType, err := encodeBody(t.body, v)
 		if err != nil {
-			return nil, input.String(), fmt.Errorf("encode body: %w", err)
+			return nil, input.text(), fmt.Errorf("encode body: %w", err)
 		}
 		body = encoded
 		headers.Set("Content-Type", contentType)
@@ -171,22 +176,28 @@ func (t *Target) build(ctx context.Context, r *rand.Rand, iter int) (*http.Reque
 	}
 	req, err := http.NewRequestWithContext(ctx, t.Op.Method, target, bytes.NewReader(body))
 	if err != nil {
-		return nil, input.String(), err
+		return nil, input.text(), err
 	}
 	req.Header = headers
-	return req, input.String(), nil
+	return req, input.text(), nil
 }
 
-func writeInput(b *strings.Builder, name string, v any) {
-	if b.Len() > 0 {
-		b.WriteString(", ")
+// requestInput holds the values of a request by where they went: "path", "query",
+// "header" and "cookie" map names to values, and "body" holds the body. The same
+// name can appear in two locations, so a flat object would lose values.
+type requestInput map[string]any
+
+func (in requestInput) addParam(location, name string, v any) {
+	values, ok := in[location].(map[string]any)
+	if !ok {
+		values = map[string]any{}
+		in[location] = values
 	}
-	b.WriteString(name)
-	b.WriteByte('=')
-	switch v.(type) {
-	case []any, map[string]any, nil:
-		b.Write(toJSON(v))
-	default:
-		b.WriteString(scalar(v))
-	}
+	values[name] = v
+}
+
+// text returns the input as a JSON object with sorted keys, so that equal inputs
+// yield equal text.
+func (in requestInput) text() string {
+	return string(toJSON(map[string]any(in)))
 }

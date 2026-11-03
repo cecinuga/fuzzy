@@ -99,6 +99,10 @@ type RequestBody struct {
 type MediaType struct {
 	Schema   *Schema              `json:"schema"`
 	Encoding map[string]*Encoding `json:"encoding"`
+
+	// SchemaName is the component the schema referred to, if any. References are
+	// gone once resolved, and an XML body takes its root element's name from it.
+	SchemaName string `json:"-"`
 }
 
 // Encoding says how one property of a form body is serialized.

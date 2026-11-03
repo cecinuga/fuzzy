@@ -137,6 +137,9 @@ func (r *resolver) body(b *RequestBody) (*RequestBody, error) {
 		if media.Schema == nil {
 			media.Schema = &Schema{}
 		}
+		if media.Schema.Ref != "" {
+			media.SchemaName = lastSegment(media.Schema.Ref)
+		}
 		s, err := r.schema(media.Schema)
 		if err != nil {
 			return nil, fmt.Errorf("requestBody %s: %w", contentType, err)

@@ -2,7 +2,9 @@ package report
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"time"
@@ -27,11 +29,12 @@ type document struct {
 }
 
 type overview struct {
-	Target     string   `json:"target"`
-	Spec       specInfo `json:"spec"`
-	Dictionary string   `json:"dictionary"` // empty when values are only random
-	Bounds     []string `json:"randomBounds"`
-	Filter     string   `json:"statusFilter"`
+	Target     string       `json:"target"`
+	Spec       specInfo     `json:"spec"`
+	Dictionary string       `json:"dictionary"` // empty when values are only random
+	Bounds     randomBounds `json:"randomBounds"`
+	Charset    string       `json:"charset"`
+	Filter     string       `json:"statusFilter"`
 	// A string in JSON: seeds use all 64 bits, and many JSON readers keep numbers
 	// as doubles, which would round the seed and so fail to reproduce the run.
 	Seed            uint64 `json:"seed,string"`
@@ -41,6 +44,29 @@ type overview struct {
 	ResultsReported int    `json:"resultsReported"`
 }
 
+// randomBounds holds the limits of random values for each data type. For strings
+// they limit the length.
+type randomBounds struct {
+	String bound[int]     `json:"string"`
+	Int    bound[int64]   `json:"int"`
+	Float  bound[float64] `json:"float"`
+}
+
+type bound[T int | int64 | float64] struct {
+	Min T `json:"min"`
+	Max T `json:"max"`
+}
+
+// text renders the bound for Markdown with the same shape it has in JSON.
+func (b bound[T]) text() string {
+	return fmt.Sprintf("{min: %v, max: %v}", b.Min, b.Max)
+}
+
+// lines renders the bounds of each data type as text, one entry per type.
+func (b randomBounds) lines() []string {
+	return []string{"string: " + b.String.text(), "int: " + b.Int.text(), "float: " + b.Float.text()}
+}
+
 type specInfo struct {
 	Path    string `json:"path"`
 	Title   string `json:"title"`
@@ -48,10 +74,71 @@ type specInfo struct {
 }
 
 type summaryRow struct {
-	Endpoint    string       `json:"endpoint"`
-	Sent        int          `json:"sent"`
-	Reported    int          `json:"reported"`
-	StatusCodes statusCounts `json:"statusCodes"`
+	Endpoint     string       `json:"endpoint"`
+	Sent         int          `json:"sent"`
+	Reported     int          `json:"reported"`
+	StatusCodes  statusCounts `json:"statusCodes"`
+	ResponseTime responseTime `json:"responseTimeMs"`
+}
+
+// responseTime summarizes an endpoint's response times in milliseconds. It covers
+// every response, whatever the status filter keeps, and only responses: a request
+// without one would report how long the timeout is, not how the API performs.
+type responseTime struct {
+	Count int     `json:"count"`
+	Min   float64 `json:"min"`
+	Mean  float64 `json:"mean"`
+	P50   float64 `json:"p50"`
+	P95   float64 `json:"p95"`
+	P99   float64 `json:"p99"`
+	Max   float64 `json:"max"`
+}
+
+func newResponseTime(l *fuzzer.Latency) responseTime {
+	return responseTime{
+		Count: l.Count,
+		Min:   millis(l.Min),
+		Mean:  millis(l.Mean()),
+		P50:   millis(l.Percentile(50)),
+		P95:   millis(l.Percentile(95)),
+		P99:   millis(l.Percentile(99)),
+		Max:   millis(l.Max),
+	}
+}
+
+// text renders every figure, for the formats meant to be read.
+func (t responseTime) text() string {
+	if t.Count == 0 {
+		return "no responses"
+	}
+	noun := "responses"
+	if t.Count == 1 {
+		noun = "response"
+	}
+	return fmt.Sprintf("min %s, mean %s, p50 %s, p95 %s, p99 %s, max %s (%d %s)",
+		millisText(t.Min), millisText(t.Mean), millisText(t.P50), millisText(t.P95), millisText(t.P99), millisText(t.Max), t.Count, noun)
+}
+
+// short renders the figures that fit a summary table.
+func (t responseTime) short() string {
+	if t.Count == 0 {
+		return "no responses"
+	}
+	return fmt.Sprintf("mean %s, p95 %s, max %s", millisText(t.Mean), millisText(t.P95), millisText(t.Max))
+}
+
+// millis converts a duration to milliseconds, to the microsecond.
+func millis(d time.Duration) float64 {
+	return math.Round(float64(d)/float64(time.Microsecond)) / 1000
+}
+
+func millisText(ms float64) string {
+	return number(ms) + " ms"
+}
+
+// number renders a value the way JSON does, without an exponent.
+func number(v float64) string {
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 type endpoint struct {
@@ -73,11 +160,12 @@ type parameter struct {
 }
 
 type results struct {
-	Sent        int          `json:"sent"`
-	Reported    int          `json:"reported"`
-	Filter      string       `json:"filter"`
-	StatusCodes statusCounts `json:"statusCodes"`
-	Items       []result     `json:"items"`
+	Sent         int          `json:"sent"`
+	Reported     int          `json:"reported"`
+	Filter       string       `json:"filter"`
+	StatusCodes  statusCounts `json:"statusCodes"`
+	ResponseTime responseTime `json:"responseTimeMs"`
+	Items        []result     `json:"items"`
 }
 
 type result struct {
@@ -85,6 +173,9 @@ type result struct {
 	Status   statusCode `json:"status"`
 	Message  string     `json:"message"`
 	Input    string     `json:"input"`
+	// The time the call took, also for a request without a response: how long it
+	// took to fail is what tells a timeout from a refused connection.
+	DurationMs float64 `json:"durationMs"`
 }
 
 type skippedEndpoint struct {
@@ -131,10 +222,11 @@ func newDocument(r Report) document {
 		sent += o.Sent
 		kept += len(o.Results)
 		doc.Summary[i] = summaryRow{
-			Endpoint:    o.Target.Op.Method + " " + o.Target.Op.Path,
-			Sent:        o.Sent,
-			Reported:    len(o.Results),
-			StatusCodes: o.Counts,
+			Endpoint:     o.Target.Op.Method + " " + o.Target.Op.Path,
+			Sent:         o.Sent,
+			Reported:     len(o.Results),
+			StatusCodes:  o.Counts,
+			ResponseTime: newResponseTime(&o.Latency),
 		}
 		doc.Endpoints[i] = newEndpoint(o, r.Filter)
 	}
@@ -143,10 +235,15 @@ func newDocument(r Report) document {
 	}
 
 	doc.Overview = overview{
-		Target:          r.Remote,
-		Spec:            specInfo{Path: r.Spec, Title: r.SpecTitle, Version: r.SpecVersion},
-		Dictionary:      r.Dictionary,
-		Bounds:          append([]string{}, r.Bounds...),
+		Target:     r.Remote,
+		Spec:       specInfo{Path: r.Spec, Title: r.SpecTitle, Version: r.SpecVersion},
+		Dictionary: r.Dictionary,
+		Bounds: randomBounds{
+			String: bound[int]{r.Bounds.StringMin, r.Bounds.StringMax},
+			Int:    bound[int64]{r.Bounds.IntMin, r.Bounds.IntMax},
+			Float:  bound[float64]{r.Bounds.FloatMin, r.Bounds.FloatMax},
+		},
+		Charset:         string(r.Bounds.Charset),
 		Filter:          r.Filter.String(),
 		Seed:            r.Seed,
 		Started:         r.Started.Format(time.RFC3339),
@@ -161,7 +258,10 @@ func newEndpoint(o *fuzzer.Outcome, filter fuzzer.StatusFilter) endpoint {
 	op := o.Target.Op
 	items := make([]result, len(o.Results))
 	for i, res := range o.Results {
-		items[i] = result{Endpoint: res.Endpoint, Status: statusCode(res.Status), Message: res.Message, Input: res.Input}
+		items[i] = result{
+			Endpoint: res.Endpoint, Status: statusCode(res.Status), Message: res.Message, Input: res.Input,
+			DurationMs: millis(res.Duration),
+		}
 	}
 	return endpoint{
 		Method:      op.Method,
@@ -171,11 +271,12 @@ func newEndpoint(o *fuzzer.Outcome, filter fuzzer.StatusFilter) endpoint {
 		OperationID: op.OperationID,
 		Parameters:  parametersOf(op),
 		Results: results{
-			Sent:        o.Sent,
-			Reported:    len(o.Results),
-			Filter:      filter.String(),
-			StatusCodes: o.Counts,
-			Items:       items,
+			Sent:         o.Sent,
+			Reported:     len(o.Results),
+			Filter:       filter.String(),
+			StatusCodes:  o.Counts,
+			ResponseTime: newResponseTime(&o.Latency),
+			Items:        items,
 		},
 	}
 }

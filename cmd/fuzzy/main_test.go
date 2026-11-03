@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"mime"
@@ -200,6 +201,28 @@ func strictAPI(violations *[]string, mu *sync.Mutex) http.Handler {
 		w.WriteHeader(401)
 	})
 
+	mux.HandleFunc("POST /v1/legacy", func(w http.ResponseWriter, r *http.Request) {
+		if contentType := r.Header.Get("Content-Type"); contentType != "application/xml" {
+			fail(r, w, "Content-Type %q", contentType)
+			return
+		}
+		var document struct {
+			XMLName xml.Name
+			Members []struct {
+				XMLName xml.Name
+			} `xml:",any"`
+		}
+		if err := xml.NewDecoder(r.Body).Decode(&document); err != nil {
+			fail(r, w, "body is not well-formed XML: %v", err)
+			return
+		}
+		// The schema is an inline object, so the root has the default name, and
+		// an object in a body needs at least one member to serialize to anything.
+		if document.XMLName.Local != "root" || len(document.Members) == 0 {
+			fail(r, w, "unexpected document: %+v", document)
+		}
+	})
+
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		fail(r, w, "no such route")
 	})
@@ -227,7 +250,7 @@ func TestEveryRequestIsValidAgainstAStrictServer(t *testing.T) {
 	if len(violations) > 0 {
 		t.Fatalf("%d invalid requests, first ones:\n%s", len(violations), strings.Join(violations[:min(10, len(violations))], "\n"))
 	}
-	if !strings.Contains(stdout, "2400 requests sent, 0 without a response") {
+	if !strings.Contains(stdout, "2800 requests sent, 0 without a response") {
 		t.Errorf("stdout = %s", stdout)
 	}
 
@@ -235,7 +258,7 @@ func TestEveryRequestIsValidAgainstAStrictServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"## GET /user/{id}", "## POST /user", "## DELETE /user/{id}", "## GET /search", "## POST /upload", "## POST /login", "## Skipped endpoints", "POST /legacy"} {
+	for _, want := range []string{"## GET /user/{id}", "## POST /user", "## DELETE /user/{id}", "## GET /search", "## POST /upload", "## POST /login", "## POST /legacy"} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("report lacks %q", want)
 		}
@@ -391,7 +414,7 @@ func TestAnUnreachableTargetStillProducesAReport(t *testing.T) {
 	if code != exitOK {
 		t.Fatalf("exit %d", code)
 	}
-	if !strings.Contains(stdout, "6 requests sent, 6 without a response") {
+	if !strings.Contains(stdout, "7 requests sent, 7 without a response") {
 		t.Errorf("stdout = %s", stdout)
 	}
 	data, _ := os.ReadFile(report)
@@ -415,5 +438,207 @@ func TestCancelledRunWritesAPartialReport(t *testing.T) {
 	data, _ := os.ReadFile(report)
 	if !strings.Contains(string(data), "interrupted") {
 		t.Errorf("a partial report must say so:\n%s", data)
+	}
+}
+
+// fuzzOneEndpoint runs against a one-endpoint spec, calling onRequest with the
+// number of each request, and returns the CLI's exit code and stderr.
+func fuzzOneEndpoint(t *testing.T, requests int, output string, onRequest func(n int), extra ...string) (int, string) {
+	t.Helper()
+	spec := filepath.Join(t.TempDir(), "spec.json")
+	body := `{"openapi": "3.0.3", "info": {"title": "t", "version": "1"},
+		"paths": {"/a": {"get": {"responses": {"200": {"description": "ok"}}}}}}`
+	if err := os.WriteFile(spec, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	n := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		n++
+		if onRequest != nil {
+			onRequest(n)
+		}
+	}))
+	defer srv.Close()
+	args := append([]string{"--remote", srv.URL, "--spec", spec, "--format", "json", "-c", "1", "-n", strconv.Itoa(requests), "-o", output}, extra...)
+	code, _, stderr := runCLI(t, args...)
+	return code, stderr
+}
+
+type reportState struct {
+	Interrupted bool `json:"interrupted"`
+	Overview    struct {
+		RequestsSent int `json:"requestsSent"`
+	} `json:"overview"`
+}
+
+func readReportState(t *testing.T, path string) reportState {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state reportState
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatalf("not a complete report: %v\n%s", err, data)
+	}
+	return state
+}
+
+func TestReportIsOnlyWrittenAtTheEndByDefault(t *testing.T) {
+	report := filepath.Join(t.TempDir(), "report.json")
+
+	size := int64(-1)
+	code, _ := fuzzOneEndpoint(t, 110, report, func(n int) {
+		if n == 100 {
+			info, err := os.Stat(report)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			size = info.Size()
+		}
+	})
+	if code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+
+	if size != 0 {
+		t.Errorf("report had %d bytes during the run, want none", size)
+	}
+	if final := readReportState(t, report); final.Interrupted || final.Overview.RequestsSent != 110 {
+		t.Errorf("final report = %+v, want a complete one with 110 requests", final)
+	}
+}
+
+func TestDefaultKeepsAHardLinkToTheReport(t *testing.T) {
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report.json")
+	if err := os.WriteFile(report, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.json")
+	if err := os.Link(report, link); err != nil {
+		t.Skip(err)
+	}
+
+	if code, _ := fuzzOneEndpoint(t, 20, report, nil); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if state := readReportState(t, link); state.Overview.RequestsSent != 20 {
+		t.Errorf("the file was replaced instead of written: the link has %+v", state)
+	}
+}
+
+func TestReportIsWrittenDuringTheRun(t *testing.T) {
+	report := filepath.Join(t.TempDir(), "report.json")
+
+	// One worker can't get past the checkpoint at 50 while it's being written, as
+	// the records it sends fill up, so that one is on disk when request 60 arrives.
+	// The next needs request 60 to complete, and this handler is holding it up.
+	var midRun reportState
+	code, _ := fuzzOneEndpoint(t, 110, report, func(n int) {
+		if n == 60 {
+			midRun = readReportState(t, report)
+		}
+	}, "--incremental")
+	if code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+
+	if !midRun.Interrupted || midRun.Overview.RequestsSent != 50 {
+		t.Errorf("mid-run report = %+v, want a partial one with 50 requests", midRun)
+	}
+	final := readReportState(t, report)
+	if final.Interrupted || final.Overview.RequestsSent != 110 {
+		t.Errorf("final report = %+v, want a complete one with 110 requests", final)
+	}
+}
+
+func TestCheckpointsLeaveNoTemporaryFiles(t *testing.T) {
+	dir := t.TempDir()
+	if code, _ := fuzzOneEndpoint(t, 110, filepath.Join(dir, "report.json"), nil, "--incremental"); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("directory holds %v, want only the report", entries)
+	}
+}
+
+func TestReportKeepsItsModeAndSymlink(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real.json")
+	if err := os.WriteFile(real, nil, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link.json")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip(err)
+	}
+
+	if code, _ := fuzzOneEndpoint(t, 20, link, nil, "--incremental"); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+
+	if info, err := os.Lstat(link); err != nil || info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("the link was replaced: %v, %v", info, err)
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o640 {
+		t.Errorf("mode = %o, want 640", info.Mode().Perm())
+	}
+	if state := readReportState(t, real); state.Overview.RequestsSent != 20 {
+		t.Errorf("the link's target has %+v", state)
+	}
+}
+
+func TestDeviceOutputIsNotReplaced(t *testing.T) {
+	if _, err := os.Stat(os.DevNull); err != nil {
+		t.Skip(err)
+	}
+	code, stderr := fuzzOneEndpoint(t, 20, os.DevNull, nil, "--incremental")
+	if code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if !strings.Contains(stderr, "only written at the end") {
+		t.Errorf("no warning that checkpoints are off, stderr = %q", stderr)
+	}
+	info, err := os.Stat(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().IsRegular() {
+		t.Errorf("%s became a regular file", os.DevNull)
+	}
+}
+
+func TestReportInAReadOnlyDirectoryIsStillWritten(t *testing.T) {
+	dir := t.TempDir()
+	report := filepath.Join(dir, "report.json")
+	if err := os.WriteFile(report, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if canCreateIn(dir) {
+		t.Skip("permissions aren't enforced here, for example when running as root")
+	}
+
+	if code, _ := fuzzOneEndpoint(t, 20, report, nil, "--incremental"); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if state := readReportState(t, report); state.Interrupted || state.Overview.RequestsSent != 20 {
+		t.Errorf("report = %+v", state)
 	}
 }

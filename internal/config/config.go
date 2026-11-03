@@ -8,6 +8,7 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,10 @@ import (
 const (
 	DefaultRequests = 100
 
+	// ReportCheckpoints is how many times --incremental saves the report before
+	// the end of the run.
+	ReportCheckpoints = 10
+
 	defaultConcurrency = 20
 	defaultTimeout     = 10 * time.Second
 	defaultOutputName  = "fuzzy-report" // the extension comes from the format
@@ -34,6 +39,7 @@ type Config struct {
 	DictPath    string
 	Output      string
 	Format      report.Format
+	LogPath     string // empty means no log file
 	Filter      fuzzer.StatusFilter
 	Bounds      generator.Bounds
 	Requests    int // 0 means: DefaultRequests, or the dictionary size if larger
@@ -42,6 +48,7 @@ type Config struct {
 	Insecure    bool
 	Headers     http.Header
 	Seed        uint64
+	Incremental bool // also save the report during the run, not only at its end
 }
 
 // Flags holds the flag values as typed, before validation.
@@ -56,9 +63,11 @@ type Flags struct {
 	timeout     time.Duration
 	output      string
 	format      string
+	log         string
 	headers     []string
 	insecure    bool
 	seed        uint64
+	incremental bool
 }
 
 // Register defines the flags on fs, with their defaults. A word in backquotes
@@ -66,6 +75,7 @@ type Flags struct {
 func (f *Flags) Register(fs *pflag.FlagSet) {
 	d := generator.DefaultBounds()
 
+	fs.SetNormalizeFunc(normalizeFlagName)
 	fs.StringVar(&f.remote, "remote", "", "API to fuzz: `url`, FQDN or host:port (required)")
 	fs.StringVar(&f.spec, "spec", "", "OpenAPI 3.0 spec, JSON `file` (required)")
 	fs.StringVar(&f.status, "status", "", "status `codes` in the report, e.g. 200,404,5xx,400-404,err (default all)")
@@ -80,8 +90,10 @@ func (f *Flags) Register(fs *pflag.FlagSet) {
 	fs.IntVarP(&f.requests, "requests", "n", 0, fmt.Sprintf("requests per endpoint (default %d, or the dictionary size if larger)", DefaultRequests))
 	fs.IntVarP(&f.concurrency, "concurrency", "c", defaultConcurrency, "concurrent workers")
 	fs.DurationVar(&f.timeout, "timeout", defaultTimeout, "timeout of each request")
-	fs.StringVarP(&f.output, "output", "o", "", "report `path` (default "+defaultOutputName+report.FormatMarkdown.Extension()+", or "+defaultOutputName+report.FormatJSON.Extension()+" with --format json)")
-	fs.StringVar(&f.format, "format", string(report.FormatMarkdown), "report format: markdown or json")
+	fs.StringVarP(&f.output, "output", "o", "", "report `path`; its extension picks the format (default "+defaultOutputName+" with the format's extension)")
+	fs.StringVar(&f.format, "format", "", "report format: markdown, json, txt, csv, xml or html (default from the -o extension, else markdown)")
+	fs.BoolVar(&f.incremental, "incremental", false, fmt.Sprintf("also save the report %d times during the run (default only at the end)", ReportCheckpoints))
+	fs.StringVar(&f.log, "log", "", "append a line for every request to this `file` (default no log)")
 	// An array, not a slice: a slice would split header values on their commas.
 	fs.StringArrayVarP(&f.headers, "header", "H", nil, "`header` for every request, 'Name: value' (repeatable)")
 	fs.BoolVarP(&f.insecure, "insecure", "k", false, "skip TLS certificate verification")
@@ -105,7 +117,7 @@ func (f *Flags) Config() (*Config, error) {
 		return nil, fmt.Errorf("--status: %w", err)
 	}
 
-	format, err := report.ParseFormat(f.format)
+	format, err := f.reportFormat()
 	if err != nil {
 		return nil, fmt.Errorf("--format: %w", err)
 	}
@@ -113,6 +125,9 @@ func (f *Flags) Config() (*Config, error) {
 	output := f.output
 	if output == "" {
 		output = defaultOutputName + format.Extension()
+	}
+	if f.log != "" && filepath.Clean(f.log) == filepath.Clean(output) {
+		return nil, fmt.Errorf("--log: %q is also the report's path", f.log)
 	}
 
 	if err := f.bounds.Validate(); err != nil {
@@ -144,6 +159,7 @@ func (f *Flags) Config() (*Config, error) {
 		DictPath:    f.dict,
 		Output:      output,
 		Format:      format,
+		LogPath:     f.log,
 		Filter:      filter,
 		Bounds:      f.bounds,
 		Requests:    f.requests,
@@ -152,7 +168,20 @@ func (f *Flags) Config() (*Config, error) {
 		Insecure:    f.insecure,
 		Headers:     headers,
 		Seed:        seed,
+		Incremental: f.incremental,
 	}, nil
+}
+
+// reportFormat lets --format decide, then the extension of --output. A path whose
+// extension names no format gets the default one, as any path used to.
+func (f *Flags) reportFormat() (report.Format, error) {
+	if f.format != "" {
+		return report.ParseFormat(f.format)
+	}
+	if format, ok := report.FormatOfPath(f.output); ok {
+		return format, nil
+	}
+	return report.FormatMarkdown, nil
 }
 
 // parseHeaders reads 'Name: value' pairs. The value may itself contain colons.

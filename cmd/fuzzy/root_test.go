@@ -38,6 +38,7 @@ func TestCanonicalArgs(t *testing.T) {
 		"negative value":    {[]string{"-int-min", "-5", "-int-max=-1"}, []string{"--int-min", "-5", "--int-max=-1"}},
 		"value like a flag": {[]string{"-o", "-remote", "-spec", "s"}, []string{"-o", "-remote", "--spec", "s"}},
 		"bool takes none":   {[]string{"-k", "-remote", "x"}, []string{"-k", "--remote", "x"}},
+		"short name":        {[]string{"--rem", "x", "--sta=5xx", "--inc", "--spc", "s"}, []string{"--rem", "x", "--sta=5xx", "--inc", "--spc", "s"}},
 		"help":              {[]string{"-help"}, []string{"--help"}},
 		"version":           {[]string{"-version"}, []string{"--version"}},
 		"after terminator":  {[]string{"-k", "--", "-remote"}, []string{"-k", "--", "-remote"}},
@@ -143,13 +144,58 @@ func TestHelpListsEveryFlag(t *testing.T) {
 			t.Errorf("%v: exit %d, stderr %q", args, code, stderr)
 		}
 		for _, flag := range []string{
-			"--remote", "--spec", "--status", "--dict", "--string-min", "--string-max", "--int-min", "--int-max", "--float-min", "--float-max", "--charset",
-			"-n, --requests", "-c, --concurrency", "--timeout", "-o, --output", "-H, --header", "-k, --insecure", "--seed",
+			"--rem, -remote", "--spc, -spec", "--sta, -status", "--dic, -dict", "--smn, -string-min", "--smx, -string-max", "--imn, -int-min", "--imx, -int-max",
+			"--fmn, -float-min", "--fmx, -float-max", "--chr, -charset", "--n, -requests", "--c, -concurrency", "--tmo, -timeout", "--o, -output", "--fmt, -format",
+			"--inc, -incremental", "--log, -log", "--H, -header", "--k, -insecure", "--sd, -seed", "--h, -help", "--v, -version",
 		} {
 			if !strings.Contains(stdout, flag) {
 				t.Errorf("%v: help lacks %s", args, flag)
 			}
 		}
+	}
+}
+
+func TestShortNamesWorkOnTheCommandLine(t *testing.T) {
+	var (
+		mu    sync.Mutex
+		token string
+		count int
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		token = r.Header.Get("X-Token")
+		count++
+	}))
+	defer srv.Close()
+	dir := t.TempDir()
+	report := filepath.Join(dir, "r.txt")
+
+	code, stdout, stderr := runCLI(t, "--rem", srv.URL, "--spc", writeSpec(t), "--sta", "2xx", "--smn", "2", "--smx=3", "--imn", "-5", "--imx", "5",
+		"--fmn", "1", "--fmx", "2", "--chr", "alnum", "--n", "3", "--c", "2", "--tmo", "2s", "--o", report, "--fmt", "json", "--inc",
+		"--log", filepath.Join(dir, "run.log"), "--H", "X-Token: t", "--k", "--sd", "7")
+	if code != exitOK {
+		t.Fatalf("exit %d, stderr %q", code, stderr)
+	}
+	if count != 3 || token != "t" {
+		t.Errorf("%d requests with X-Token %q, want 3 with t", count, token)
+	}
+	if !strings.Contains(stdout, "3 requests each (seed 7)") {
+		t.Errorf("stdout = %s", stdout)
+	}
+	data, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !json.Valid(data) {
+		t.Errorf("--fmt was ignored, report is:\n%s", data)
+	}
+}
+
+func TestHelpOfASubcommandKeepsItsSpellings(t *testing.T) {
+	_, stdout, _ := runCLI(t, "completion", "bash", "--help")
+	if !strings.Contains(stdout, "--no-descriptions") || !strings.Contains(stdout, "-h, --help") {
+		t.Errorf("help = %s", stdout)
 	}
 }
 
@@ -175,8 +221,10 @@ func TestShellCompletion(t *testing.T) {
 	})
 	t.Run("format values", func(t *testing.T) {
 		_, stdout, _ := runCLI(t, "__complete", "--format", "")
-		if !strings.Contains(stdout, "markdown") || !strings.Contains(stdout, "json") {
-			t.Errorf("stdout = %q", stdout)
+		for _, format := range []string{"markdown", "json", "txt", "csv", "xml", "html"} {
+			if !strings.Contains(stdout, format) {
+				t.Errorf("stdout lacks %s: %q", format, stdout)
+			}
 		}
 	})
 	t.Run("partial flag name", func(t *testing.T) {
@@ -226,7 +274,9 @@ func TestFormatFlagPicksTheReportFormat(t *testing.T) {
 		"json":           {[]string{"--format", "json"}, "fuzzy-report.json", true},
 		"old spelling":   {[]string{"-format", "json"}, "fuzzy-report.json", true},
 		"explicit path":  {[]string{"--format=json", "-o", "custom.out"}, "custom.out", true},
-		"path no format": {[]string{"-o", "custom.json"}, "custom.json", false},
+		"path no format": {[]string{"-o", "custom.json"}, "custom.json", true},
+		"flag over path": {[]string{"--format", "markdown", "-o", "custom.json"}, "custom.json", false},
+		"unknown path":   {[]string{"-o", "custom.out"}, "custom.out", false},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -259,7 +309,7 @@ func TestFormatFlagPicksTheReportFormat(t *testing.T) {
 func TestBadFormatIsAUsageErrorAndWritesNothing(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	code, _, stderr := runCLI(t, "--remote", "http://localhost:1", "--spec", writeSpec(t), "--format", "xml")
+	code, _, stderr := runCLI(t, "--remote", "http://localhost:1", "--spec", writeSpec(t), "--format", "yaml")
 	if code != exitUsage || !strings.Contains(stderr, "--format") {
 		t.Errorf("exit %d, stderr %q", code, stderr)
 	}
@@ -287,5 +337,108 @@ func TestCancelledRunMarksTheJSONReportAsPartial(t *testing.T) {
 	var doc struct{ Interrupted bool }
 	if err := json.Unmarshal(data, &doc); err != nil || !doc.Interrupted {
 		t.Errorf("interrupted = %v, err = %v:\n%s", doc.Interrupted, err, data)
+	}
+}
+
+func TestOutputExtensionPicksTheFormat(t *testing.T) {
+	spec := writeSpec(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+
+	for file, start := range map[string]string{
+		"r.md":   "# Fuzzy report",
+		"r.json": "{",
+		"r.txt":  "Fuzzy report\n=====",
+		"r.csv":  "operation,endpoint,status,",
+		"r.xml":  "<?xml",
+		"r.html": "<!doctype html>",
+		"R.HTM":  "<!doctype html>",
+	} {
+		t.Run(file, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), file)
+			code, _, stderr := runCLI(t, "--remote", srv.URL, "--spec", spec, "-n", "2", "-o", path)
+			if code != exitOK {
+				t.Fatalf("exit %d: %s", code, stderr)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.HasPrefix(string(data), start) {
+				t.Errorf("starts with %.40q, want %q", data, start)
+			}
+		})
+	}
+}
+
+func TestLogFlagKeepsEveryRequest(t *testing.T) {
+	spec := writeSpec(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "run.log")
+
+	// Twice, because a log appends where a report starts over.
+	for range 2 {
+		code, stdout, stderr := runCLI(t, "--remote", srv.URL, "--spec", spec, "-n", "3", "--status", "5xx", "-o", filepath.Join(dir, "r.csv"), "--log", logPath)
+		if code != exitOK {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		if !strings.Contains(stdout, "Log: "+logPath+"\n") {
+			t.Errorf("stdout = %q", stdout)
+		}
+		if !strings.Contains(stdout, "Report: "+filepath.Join(dir, "r.csv")+"\n") {
+			t.Errorf("stdout = %q", stdout)
+		}
+	}
+
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	log := string(data)
+	if got := strings.Count(log, "msg=\"run started\""); got != 2 {
+		t.Errorf("%d runs started:\n%s", got, log)
+	}
+	if got := strings.Count(log, "msg=\"run finished\""); got != 2 {
+		t.Errorf("%d runs finished:\n%s", got, log)
+	}
+	// --status 5xx keeps none of these in the report, and all of them in the log.
+	if got := strings.Count(log, "status=404"); got < 6 {
+		t.Errorf("%d requests logged:\n%s", got, log)
+	}
+	report, err := os.ReadFile(filepath.Join(dir, "r.csv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(report), "\n") != 1 {
+		t.Errorf("the filter should leave only the header:\n%s", report)
+	}
+}
+
+func TestLogFlagOldSpellingAndBadPath(t *testing.T) {
+	spec := writeSpec(t)
+	srv := httptest.NewServer(http.NotFoundHandler())
+	defer srv.Close()
+	dir := t.TempDir()
+
+	report := filepath.Join(dir, "r.md")
+	if err := os.WriteFile(report, []byte("old report"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, _, stderr := runCLI(t, "-remote", srv.URL, "-spec", spec, "-o", report, "-log", filepath.Join(dir, "no", "dir", "run.log"))
+	if code != exitFailure || !strings.Contains(stderr, "open log") {
+		t.Errorf("exit %d, stderr %q", code, stderr)
+	}
+	if data, _ := os.ReadFile(report); string(data) != "old report" {
+		t.Errorf("a bad log path must not cost the previous report: %q", data)
+	}
+
+	path := filepath.Join(dir, "run.log")
+	if code, _, stderr := runCLI(t, "-remote", srv.URL, "-spec", spec, "-n", "1", "-o", report, "-log", path); code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Error(err)
 	}
 }

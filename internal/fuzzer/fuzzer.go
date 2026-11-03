@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	snippetSize = 1 << 10 // bytes of a response body inspected for the message
-	drainLimit  = 1 << 20 // bytes drained to keep a connection reusable
+	snippetSize = 16 << 10 // bytes of a response body inspected for the message
+	drainLimit  = 1 << 20  // bytes drained to keep a connection reusable
 	maxMsgRunes = 200
 )
 
@@ -37,6 +37,19 @@ type Options struct {
 	// goroutine that collects results, so it must return quickly.
 	Progress      func(Progress)
 	ProgressEvery time.Duration
+
+	// Checkpoint, if set, receives the outcomes so far Checkpoints times, evenly
+	// spaced over the run's calls and strictly before its end. A run with fewer
+	// calls than that, or an interrupted one, gets fewer. It runs on the goroutine
+	// that collects results, which holds the workers back while it runs, and the
+	// outcomes are only valid during the call.
+	Checkpoint  func([]Outcome)
+	Checkpoints int
+
+	// OnResult, if set, receives every call as it completes, whatever the status
+	// filter keeps for the report. It runs on the goroutine that collects results,
+	// so it holds the workers back if it is slow.
+	OnResult func(Result)
 }
 
 // Progress is a run's state at one moment. Like an Outcome's Counts, it covers
@@ -78,15 +91,17 @@ type Result struct {
 	Status   int // TransportError when no response was received
 	Message  string
 	Input    string
+	Duration time.Duration // from sending the request to reading the response
 	iter     int
 }
 
-// Outcome aggregates the calls made to one target. Counts always covers every
-// call; Results only holds those that passed the status filter.
+// Outcome aggregates the calls made to one target. Counts and Latency always
+// cover every call; Results only holds those that passed the status filter.
 type Outcome struct {
 	Target  *Target
 	Sent    int
 	Counts  map[int]int
+	Latency Latency
 	Results []Result
 }
 
@@ -174,14 +189,12 @@ func collect(records <-chan record, opts Options, targets []*Target, dispatched 
 		opts.Progress(progress)
 	}
 
+	checkpoints := 0
 	for {
 		select {
 		case rec, open := <-records:
 			if !open {
-				for i := range outcomes {
-					// Workers finish out of order; sorting makes the report reproducible.
-					slices.SortFunc(outcomes[i].Results, func(a, b Result) int { return a.iter - b.iter })
-				}
+				sortResults(outcomes)
 				if opts.Progress != nil {
 					progress.Final = true
 					report()
@@ -198,12 +211,33 @@ func collect(records <-chan record, opts Options, targets []*Target, dispatched 
 			out := &outcomes[rec.target]
 			out.Sent++
 			out.Counts[rec.result.Status]++
+			if rec.result.Status != TransportError {
+				out.Latency.add(rec.result.Duration)
+			}
+			if opts.OnResult != nil {
+				opts.OnResult(rec.result)
+			}
 			if opts.Filter.Match(rec.result.Status) {
 				out.Results = append(out.Results, rec.result)
+			}
+			if opts.Checkpoint != nil && progress.Done < progress.Total {
+				if due := progress.Done * (opts.Checkpoints + 1) / progress.Total; due > checkpoints {
+					checkpoints = due
+					sortResults(outcomes)
+					opts.Checkpoint(outcomes)
+				}
 			}
 		case <-tick:
 			report()
 		}
+	}
+}
+
+// sortResults puts each outcome's results in request order: workers finish out of
+// order, and sorting makes the report reproducible.
+func sortResults(outcomes []Outcome) {
+	for i := range outcomes {
+		slices.SortFunc(outcomes[i].Results, func(a, b Result) int { return a.iter - b.iter })
 	}
 }
 
@@ -265,11 +299,13 @@ func (w *worker) call(ctx context.Context, t *Target, j job) (Result, bool) {
 	result.Endpoint = t.Op.Method + " " + req.URL.EscapedPath()
 	w.applyHeaders(req)
 
+	sent := time.Now()
 	res, err := w.client.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
 			return result, false
 		}
+		result.Duration = time.Since(sent)
 		result.Message = transportMessage(err)
 		return result, true
 	}
@@ -277,9 +313,10 @@ func (w *worker) call(ctx context.Context, t *Target, j job) (Result, bool) {
 
 	n, _ := io.ReadFull(res.Body, w.snippet)
 	_, _ = io.CopyN(io.Discard, res.Body, drainLimit)
+	result.Duration = time.Since(sent)
 
 	result.Status = res.StatusCode
-	result.Message = message(w.snippet[:n], res.StatusCode)
+	result.Message = responseMessage(res.Header.Get("Content-Type"), w.snippet[:n], res.StatusCode)
 	return result, true
 }
 

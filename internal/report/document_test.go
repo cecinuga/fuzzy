@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"fuzzy/internal/fuzzer"
+	"fuzzy/internal/generator"
 	"fuzzy/internal/openapi"
 )
 
@@ -75,7 +76,11 @@ func TestJSONSchema(t *testing.T) {
 	}
 	got := writeString(t, FormatJSON, Report{
 		SpecTitle: "Demo", SpecVersion: "2", Remote: "http://target", Spec: "spec.json", Dictionary: "values.txt",
-		Filter: filter, Bounds: []string{"int: 0..9"},
+		Filter: filter,
+		Bounds: generator.Bounds{
+			StringMin: 1, StringMax: 2, IntMin: -3, IntMax: 9, FloatMin: 0.5, FloatMax: 1000,
+			Charset: generator.CharsetAlnum,
+		},
 		Seed:    18446744073709551557, // doesn't fit a double
 		Started: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Duration: 1500 * time.Millisecond,
 		Interrupted: true, Warnings: []string{"odd pattern"},
@@ -84,8 +89,8 @@ func TestJSONSchema(t *testing.T) {
 			Sent:   4,
 			Counts: map[int]int{fuzzer.TransportError: 1, 404: 2, 500: 1},
 			Results: []fuzzer.Result{
-				{Endpoint: "GET /v1/user/1", Status: 500, Message: "boom", Input: "id=1"},
-				{Endpoint: "GET /v1/user/2", Status: fuzzer.TransportError, Message: "timeout", Input: "id=2"},
+				{Endpoint: "GET /v1/user/1", Status: 500, Message: "boom", Input: `{"path":{"id":1}}`, Duration: 12345 * time.Microsecond},
+				{Endpoint: "GET /v1/user/2", Status: fuzzer.TransportError, Message: "timeout", Input: `{"path":{"id":2}}`, Duration: 2 * time.Second},
 			},
 		}},
 		Skipped: []fuzzer.Skipped{{Op: &openapi.Operation{Method: "POST", Path: "/legacy"}, Reason: "XML only"}},
@@ -101,9 +106,21 @@ func TestJSONSchema(t *testing.T) {
       "version": "2"
     },
     "dictionary": "values.txt",
-    "randomBounds": [
-      "int: 0..9"
-    ],
+    "randomBounds": {
+      "string": {
+        "min": 1,
+        "max": 2
+      },
+      "int": {
+        "min": -3,
+        "max": 9
+      },
+      "float": {
+        "min": 0.5,
+        "max": 1000
+      }
+    },
+    "charset": "alnum",
     "statusFilter": "5xx,err",
     "seed": "18446744073709551557",
     "started": "2026-01-02T03:04:05Z",
@@ -120,6 +137,15 @@ func TestJSONSchema(t *testing.T) {
         "404": 2,
         "500": 1,
         "ERR": 1
+      },
+      "responseTimeMs": {
+        "count": 0,
+        "min": 0,
+        "mean": 0,
+        "p50": 0,
+        "p95": 0,
+        "p99": 0,
+        "max": 0
       }
     }
   ],
@@ -148,18 +174,29 @@ func TestJSONSchema(t *testing.T) {
           "500": 1,
           "ERR": 1
         },
+        "responseTimeMs": {
+          "count": 0,
+          "min": 0,
+          "mean": 0,
+          "p50": 0,
+          "p95": 0,
+          "p99": 0,
+          "max": 0
+        },
         "items": [
           {
             "endpoint": "GET /v1/user/1",
             "status": 500,
             "message": "boom",
-            "input": "id=1"
+            "input": "{\"path\":{\"id\":1}}",
+            "durationMs": 12.345
           },
           {
             "endpoint": "GET /v1/user/2",
             "status": null,
             "message": "timeout",
-            "input": "id=2"
+            "input": "{\"path\":{\"id\":2}}",
+            "durationMs": 2000
           }
         ]
       }
@@ -191,8 +228,14 @@ func TestEmptyJSONReportKeepsItsShape(t *testing.T) {
 			t.Errorf("%s = %#v, want an empty list", key, doc[key])
 		}
 	}
-	if bounds := doc["overview"].(map[string]any)["randomBounds"]; bounds == nil {
-		t.Error("randomBounds must be an empty list, not null")
+	bounds, ok := doc["overview"].(map[string]any)["randomBounds"].(map[string]any)
+	if !ok {
+		t.Fatal("randomBounds must be an object")
+	}
+	for _, key := range []string{"string", "int", "float"} {
+		if _, ok := bounds[key].(map[string]any); !ok {
+			t.Errorf("randomBounds lacks %s", key)
+		}
 	}
 
 	op := &openapi.Operation{Method: "GET", Path: "/none"}
@@ -245,17 +288,19 @@ func TestJSONKeepsHostileValuesIntact(t *testing.T) {
 }
 
 func TestParseFormat(t *testing.T) {
-	for name, want := range map[string]Format{"markdown": FormatMarkdown, "json": FormatJSON} {
+	for name, want := range map[string]Format{
+		"markdown": FormatMarkdown, "json": FormatJSON, "txt": FormatText, "csv": FormatCSV, "xml": FormatXML, "html": FormatHTML,
+	} {
 		if got, err := ParseFormat(name); err != nil || got != want {
 			t.Errorf("ParseFormat(%q) = %q, %v", name, got, err)
 		}
 	}
-	for _, name := range []string{"", "md", "JSON", "xml"} {
+	for _, name := range []string{"", "md", "JSON", "yaml", "text"} {
 		if _, err := ParseFormat(name); err == nil {
 			t.Errorf("ParseFormat(%q) must fail", name)
 		}
 	}
-	if err := Write(&strings.Builder{}, Format("xml"), Report{}); err == nil {
+	if err := Write(&strings.Builder{}, Format("yaml"), Report{}); err == nil {
 		t.Error("Write must refuse an unknown format")
 	}
 }

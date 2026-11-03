@@ -497,6 +497,8 @@ func TestBoundsValidate(t *testing.T) {
 		"int inverted":    func(b *Bounds) { b.IntMin, b.IntMax = 5, 2 },
 		"float inverted":  func(b *Bounds) { b.FloatMin, b.FloatMax = 5, 2 },
 		"float NaN":       func(b *Bounds) { b.FloatMin = math.NaN() },
+		"float infinite":  func(b *Bounds) { b.FloatMax = math.Inf(1) },
+		"float -infinite": func(b *Bounds) { b.FloatMin = math.Inf(-1) },
 		"charset":         func(b *Bounds) { b.Charset = "ebcdic" },
 	}
 	for name, mutate := range bad {

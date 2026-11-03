@@ -2,7 +2,10 @@
 // drawn from a dictionary when it has a fitting value and at random otherwise.
 package generator
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // Charset selects the characters of random strings.
 type Charset string
@@ -43,6 +46,8 @@ func (b Bounds) Validate() error {
 		return fmt.Errorf("int minimum %d exceeds maximum %d", b.IntMin, b.IntMax)
 	case !(b.FloatMin <= b.FloatMax): // also catches NaN
 		return fmt.Errorf("float minimum %v exceeds maximum %v", b.FloatMin, b.FloatMax)
+	case math.IsInf(b.FloatMin, 0) || math.IsInf(b.FloatMax, 0): // not a JSON number
+		return fmt.Errorf("float bounds must be finite (got %v and %v)", b.FloatMin, b.FloatMax)
 	case b.Charset != CharsetUnicode && b.Charset != CharsetAlnum:
 		return fmt.Errorf("unknown charset %q (want %s or %s)", b.Charset, CharsetUnicode, CharsetAlnum)
 	}

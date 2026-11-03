@@ -37,11 +37,14 @@ type Schema struct {
 	MaxItems    *int    `json:"maxItems"`
 	UniqueItems bool    `json:"uniqueItems"`
 
-	Properties           map[string]*Schema `json:"properties"`
-	Required             []string           `json:"required"`
-	MinProperties        *int               `json:"minProperties"`
-	MaxProperties        *int               `json:"maxProperties"`
-	AdditionalProperties *Additional        `json:"additionalProperties"`
+	Properties map[string]*Schema `json:"properties"`
+	// PropertyOrder lists Properties as the spec declares them. A map forgets the
+	// order, and XML consumers often enforce one (xsd:sequence).
+	PropertyOrder        []string    `json:"-"`
+	Required             []string    `json:"required"`
+	MinProperties        *int        `json:"minProperties"`
+	MaxProperties        *int        `json:"maxProperties"`
+	AdditionalProperties *Additional `json:"additionalProperties"`
 
 	AllOf []*Schema `json:"allOf"`
 	OneOf []*Schema `json:"oneOf"`
@@ -49,9 +52,84 @@ type Schema struct {
 
 	Discriminator *Discriminator `json:"discriminator"`
 
+	XML *XML `json:"xml"`
+
 	// discriminatorValues maps each resolved oneOf/anyOf branch to the value
 	// its discriminator property must carry.
 	discriminatorValues map[*Schema]string
+}
+
+// XML is the xml keyword: how a schema is written in an XML body.
+type XML struct {
+	Name      string `json:"name"`
+	Namespace string `json:"namespace"`
+	Prefix    string `json:"prefix"`
+	Attribute bool   `json:"attribute"`
+	Wrapped   bool   `json:"wrapped"`
+}
+
+// UnmarshalJSON decodes the schema and records the order of its properties. Being
+// a custom decoder, it has to ask for json.Number again: bounds and enum members
+// must not lose precision.
+func (s *Schema) UnmarshalJSON(data []byte) error {
+	type plain Schema
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	if err := dec.Decode((*plain)(s)); err != nil {
+		return err
+	}
+	if len(s.Properties) == 0 {
+		return nil
+	}
+	var keys struct {
+		Properties objectKeys `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &keys); err != nil {
+		return err
+	}
+	s.PropertyOrder = keys.Properties
+	return nil
+}
+
+// objectKeys decodes a JSON object into its keys, in document order.
+type objectKeys []string
+
+func (k *objectKeys) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if _, err := dec.Token(); err != nil { // the opening brace
+		return err
+	}
+	for dec.More() {
+		key, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		*k = append(*k, key.(string)) // object keys are always strings
+		var skipped json.RawMessage
+		if err := dec.Decode(&skipped); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// OrderedProperties returns the names of Properties in the spec's order. A name
+// the order doesn't know, which a merge can't produce, goes last, sorted.
+func (s *Schema) OrderedProperties() []string {
+	names := make([]string, 0, len(s.Properties))
+	seen := make(map[string]bool, len(s.Properties))
+	for _, name := range s.PropertyOrder {
+		if s.Properties[name] != nil && !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(s.Properties)) {
+		if !seen[name] {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // Additional is the additionalProperties keyword: a schema or a boolean.
@@ -140,6 +218,7 @@ func (s *Schema) Variants() []*Schema {
 	for i, branch := range branches {
 		v := base
 		v.Properties = maps.Clone(base.Properties)
+		v.PropertyOrder = slices.Clone(base.PropertyOrder)
 		v.Required = slices.Clone(base.Required)
 		merge(&v, branch)
 
@@ -203,6 +282,9 @@ func mergeAt(dst, src *Schema, depth int) {
 	if dst.Items == nil {
 		dst.Items = src.Items
 	}
+	if dst.XML == nil {
+		dst.XML = src.XML
+	}
 	if len(dst.Enum) == 0 {
 		dst.Enum = src.Enum
 	} else if len(src.Enum) > 0 {
@@ -233,11 +315,17 @@ func mergeAt(dst, src *Schema, depth int) {
 			if own := dst.Properties[name]; own != nil && own != prop && depth < maxMergeDepth {
 				combined := *own
 				combined.Properties = maps.Clone(own.Properties)
+				combined.PropertyOrder = slices.Clone(own.PropertyOrder)
 				combined.Required = slices.Clone(own.Required)
 				mergeAt(&combined, prop, depth+1)
 				prop = &combined
 			}
 			dst.Properties[name] = prop
+		}
+		for _, name := range src.PropertyOrder {
+			if !slices.Contains(dst.PropertyOrder, name) {
+				dst.PropertyOrder = append(dst.PropertyOrder, name)
+			}
 		}
 	}
 	for _, name := range src.Required {

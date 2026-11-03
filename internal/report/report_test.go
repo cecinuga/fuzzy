@@ -50,7 +50,8 @@ func runReport(t *testing.T, handler http.HandlerFunc, status string) Report {
 
 	return Report{
 		SpecTitle: doc.Info.Title, SpecVersion: doc.Info.Version,
-		Remote: "http://target", Spec: "spec.json", Filter: filter, Bounds: []string{"string: 1..2", "int: <3|4>"}, Seed: 77,
+		Remote: "http://target", Spec: "spec.json", Filter: filter, Seed: 77,
+		Bounds:  generator.Bounds{StringMin: 1, StringMax: 2, IntMin: -3, IntMax: 4, FloatMin: 0.5, FloatMax: 1.5, Charset: generator.CharsetAlnum},
 		Started: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Duration: 1500 * time.Millisecond,
 		Outcomes: outcomes, Skipped: skipped, Warnings: []string{"odd | pattern"},
 	}
@@ -85,7 +86,8 @@ func TestReportDescribesEveryEndpoint(t *testing.T) {
 		"| **Duration** | 1.5s |",
 		"| **Requests sent** | 15 |",
 		"| **Dictionary** | none (random values) |",
-		`| **Random bounds** | <ul><li>string: 1..2</li><li>int: &lt;3\|4&gt;</li></ul> |`, // a sub list, its items escaped
+		"| **Random bounds** | <ul><li>string: {min: 1, max: 2}</li><li>int: {min: -3, max: 4}</li><li>float: {min: 0.5, max: 1.5}</li></ul> |",
+		"| **Charset** | alnum |",
 
 		"## GET /user/{id}",
 		"- **HTTP verb:** GET",
@@ -106,7 +108,7 @@ func TestReportDescribesEveryEndpoint(t *testing.T) {
 		"None.",
 
 		"| Endpoint | Status | Message | Input |",
-		"| 404 | Not Found | id=",
+		`| 404 | Not Found | {"path":{"id":`,
 		"404 ×5",
 		"odd \\| pattern",
 	)
@@ -163,7 +165,7 @@ func TestHostileResponseCannotBreakTheDocument(t *testing.T) {
 	for _, line := range strings.Split(doc, "\n") {
 		if strings.Contains(line, "&lt;img") {
 			cells := strings.Count(strings.ReplaceAll(line, `\|`, ""), "|")
-			if cells != 5 {
+			if cells != 6 {
 				t.Errorf("row has %d separators: %s", cells, line)
 			}
 		}

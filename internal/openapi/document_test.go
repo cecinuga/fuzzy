@@ -296,3 +296,66 @@ func TestEffectiveTypeInference(t *testing.T) {
 		}
 	}
 }
+
+func TestXMLKeywordsAndPropertyOrder(t *testing.T) {
+	doc, err := Parse([]byte(`{"openapi":"3.0.0","info":{"title":"t","version":"1"},
+		"paths":{"/a":{"post":{"requestBody":{"content":{
+			"application/xml":{"schema":{"$ref":"#/components/schemas/Body"}},
+			"text/xml":{"schema":{"type":"string"}}
+		}}}}},
+		"components":{"schemas":{
+			"Base":{"type":"object","properties":{"z":{"type":"string"},"y":{"type":"integer","maximum":9007199254740993}}},
+			"Body":{"allOf":[{"$ref":"#/components/schemas/Base"},{"properties":{"b":{"type":"string"},"a":{"type":"string","xml":{"attribute":true,"name":"n","namespace":"urn:x","prefix":"p","wrapped":true}}}}],"xml":{"name":"doc"}}
+		}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	content := doc.Operations[0].RequestBody.Content
+	media := content["application/xml"]
+	if media.SchemaName != "Body" || content["text/xml"].SchemaName != "" {
+		t.Errorf("schema names %q and %q", media.SchemaName, content["text/xml"].SchemaName)
+	}
+	body := media.Schema
+	if got := strings.Join(body.OrderedProperties(), ","); got != "z,y,b,a" {
+		t.Errorf("order = %s", got)
+	}
+	if body.XML == nil || body.XML.Name != "doc" {
+		t.Errorf("xml = %+v", body.XML)
+	}
+	want := XML{Name: "n", Namespace: "urn:x", Prefix: "p", Attribute: true, Wrapped: true}
+	if got := body.Properties["a"].XML; got == nil || *got != want {
+		t.Errorf("property xml = %+v", got)
+	}
+	// A custom decoder must keep numbers exact, as the document's own decoder does.
+	if got := body.Properties["y"].Maximum.String(); got != "9007199254740993" {
+		t.Errorf("maximum = %s", got)
+	}
+}
+
+func TestOrderedPropertiesCoversNamesWithoutAnOrder(t *testing.T) {
+	s := &Schema{
+		Properties:    map[string]*Schema{"c": {}, "a": {}, "b": {}},
+		PropertyOrder: []string{"b", "gone", "b"},
+	}
+	if got := strings.Join(s.OrderedProperties(), ","); got != "b,a,c" {
+		t.Errorf("order = %s", got)
+	}
+}
+
+func TestVariantsKeepPropertyOrderApart(t *testing.T) {
+	doc, err := Parse([]byte(`{"openapi":"3.0.0","info":{"title":"t","version":"1"},
+		"paths":{"/a":{"post":{"requestBody":{"content":{"application/json":{"schema":{
+			"properties":{"base":{"type":"string"}},
+			"oneOf":[{"properties":{"one":{"type":"string"}}},{"properties":{"two":{"type":"string"}}}]
+		}}}}}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	variants := doc.Operations[0].RequestBody.Content["application/json"].Schema.Variants()
+	for i, want := range []string{"base,one", "base,two"} {
+		if got := strings.Join(variants[i].OrderedProperties(), ","); got != want {
+			t.Errorf("variant %d order = %s, want %s", i, got, want)
+		}
+	}
+}

@@ -1,82 +1,128 @@
 # 🦄 Fuzzy - HTTP API Fuzzer 🦄
 
-> **Fuzzy** — A simple shiny HTTP API fuzzing tool written in **Go** (Golang).
-> Give it an OpenAPI 3.0 spec and it sends semantically valid requests, with random or dictionary values, to every endpoint.
+> **Your API's validation layer stops most fuzz traffic. Fuzzy's requests get through it.**
+>
+> Give Fuzzy an OpenAPI 3.0 spec and it sends schema-valid requests to every endpoint, so they reach the code behind your validators. No templates, no config, one binary.
 
 ![fuzzy with little bit of anxiety because the job is not done yet](assets/fuzzy.png)
 
----
-
 Fuzzy is shy, a little anxious when he is among many people, but he works hard because he loves his job.
-He is always eager to learn new things and improve his skills, even if it means stepping out of his comfort zone.
 
 ## Table of Contents 🦆
 
-* [Description](#description)
-* [Key Features](#key-features)
-* [Installation](#installation)
-* [Usage](#usage)
+* [Why Fuzzy](#why-fuzzy-)
+* [Quick Start](#quick-start-)
+* [Installation](#installation-)
+* [Usage](#usage-)
 * [Examples](#examples)
-* [File Structure](#file-structure)
-* [Command Line Options](#command-line-options)
-* [Contributing](#contributing)
+* [Command Line Options](#command-line-options-)
+* [Known Limitations](#known-limitations-)
+* [Use Cases](#use-cases-)
+* [Safety and Best Practices](#safety-and-best-practices-)
+* [Contributing](#contributing-)
+* [Roadmap](#roadmap-)
 
 ---
 
-## Description 🦑
+## Why Fuzzy 🦑
 
-Fuzzy is a newbie-friendly, concurrent command-line HTTP API fuzzer. You give it the address of an API and its OpenAPI 3.0 spec, and it works out on its own which endpoints exist and what each one accepts.
+Random input usually dies at the front door: a wrong type or a missing field earns a `400` or a `422`, and the code behind the validator never runs. Fuzzy reads your spec and sends requests that pass validation, so what you find comes from the code behind it.
 
-For example, from the spec it learns:
+This is a real result from the bundled example API:
 
 ```
-GET /user/{id}
-  id: integer
+POST /invoices → 409 {"detail":"due_date 2000-10-24 is before issue_date 2031-06-02"}
+{"body":{"currency":"USD","customer":"õひल","due_date":"2000-10-24","issue_date":"2031-06-02","lines":[{"description":"乷ग𠁞Â걎","quantity":317,"unit_price":354}],"tax_rate":20.028}}
 ```
 
-Then it calls every endpoint with requests that respect the spec, using values generated at random or taken from your dictionary, and writes what happened to a Markdown or JSON report.
+The body matches the schema in every field, so it got past validation and reached a business rule that the spec can't express. That's the code you want a fuzzer exercising.
+
+### What You Get 🐞
+
+* **Zero setup**: Two flags, `--remote` and `--spec`. Fuzzy works out the endpoints and what each one accepts.
+* **Valid requests, however complex the spec**: Respects types, formats, ranges, lengths, patterns, enums, required fields, `$ref`, `allOf`, `oneOf`, `anyOf` and discriminators.
+* **Every place a value can go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text and binary bodies.
+* **Your payloads, where they fit**: Dictionary values are only used where the spec allows them. Anything they don't cover gets a random valid value.
+* **Failures you can reproduce**: Every report records its seed, and the same seed produces the same inputs at any concurrency.
+* **Reports for people and scripts**: Markdown to read, JSON for CI, with the same information in both. Filter by status code without losing each endpoint's totals.
+* **Built for pipelines**: Stable exit codes, and a plain-line progress mode when stderr isn't a terminal.
+* **It stays on target**: The host always comes from `--remote`. Fuzzy never calls the server named in the spec, and it reports redirects instead of following them.
+* **Ctrl+C loses nothing**: An interrupted run still writes its report, marked as partial. Add `--incremental` and even a killed run leaves its last checkpoint.
+* **Easy on your machine**: A single binary, a bounded worker pool on a shared connection pool, and only [Cobra](https://github.com/spf13/cobra) and its flag library as direct dependencies.
+
+### Measured 🐆
+
+| What | Result |
+|---|---|
+| Speed | 120,000 requests in 17.4 s, about 6,900 req/s |
+| Peak memory | 15 MB, at both 6,000 and 120,000 requests |
+| Requests rejected as invalid (`422`) | 0 of 120,000 |
+| Same seed at `-c 1` and `-c 50` | 600 of 600 inputs identical |
+| Binary size | 9.6 MB |
+
+These come from one Linux machine, fuzzing the in-memory `examples/crud` API on localhost with `-c 20 --status 5xx,err`. A real API will set its own pace. Results that pass `--status` stay in memory for the whole run, so a run that keeps every result uses more.
+
+### Is It for You? 🦝
+
+Fuzzy fits if you have an OpenAPI 3.0.x spec in JSON and a disposable environment to test against. Keep in mind:
+
+- **It stays inside the spec**: Fuzzy doesn't send malformed requests on purpose, so it won't test how your API handles invalid input.
+- **It really calls everything**: `DELETE` and `PUT` included, with valid values, so it changes real data. [Never point it at production](#safety-and-best-practices-).
+- **Authentication is up to you**: Pass your credentials with `-H`.
 
 ---
 
-## Key Features 🐞
+## Quick Start 🐇
 
-* **OpenAPI 3.0 Driven**: Reads a JSON spec and fuzzes all of its endpoints, no request templates to write
-* **Semantically Valid Requests**: Respects types, formats, ranges, lengths, patterns, enums, required fields, `$ref`, `allOf`, `oneOf`, `anyOf` and discriminators
-* **Everywhere a Value Can Go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text and binary bodies
-* **Flexible Input**: Random values within bounds you choose, or a text file with values to test (one value per line)
-* **Dictionary With a Safety Net**: A dictionary value is only used where the spec allows it; anything it doesn't cover gets a random valid value
-* **Markdown or JSON Report**: Each endpoint with its spec and its results, filtered by the status codes you care about
-* **Fast and Concurrent**: A bounded worker pool on a shared connection pool, with memory that stays low on big specs
-* **Reproducible**: The same seed produces the same inputs, at any concurrency
-* **Live Status Bar**: A single line that updates in place with the requests sent so far, the speed, the time left and the failures
-* **Endpoint Colors**: Every endpoint is listed live on the terminal: red when not tested yet, yellow while sending requests, white once all of them are sent
-* **Interrupt Friendly**: Ctrl+C stops the run and still writes the report, marked as partial
-* **Lightweight**: A single binary, whose only direct dependency is [Cobra](https://github.com/spf13/cobra) and its flag library
+The repository includes a small in-memory invoice API that is safe to fuzz. It has no planted bugs, so a healthy run reports no `5xx` and no `err`.
 
----
+**Terminal 1**, start the API:
+```bash
+git clone https://github.com/cecinuga/fuzzy.git
+cd fuzzy
+go run ./examples/crud
+```
 
-## Requirements 🐿️
+**Terminal 2**, from the same directory, fuzz it:
+```bash
+go build -o fuzzy ./cmd/fuzzy
+./fuzzy --remote http://localhost:8000 --spec examples/crud/artifacts/openapi.json --seed 42
+```
 
-* Go 1.25.1+
-* OS: Linux/macOS/Windows (Linux recommended for heavy testing)
-* (Optional) Docker for target isolation
+```
+[+] fuzzing 6 endpoints of http://localhost:8000, 100 requests each (seed 42)
+[+] 600 requests sent, 0 without a response. Report: /home/you/fuzzy/fuzzy-report.md
+```
+
+`fuzzy-report.md` opens with a summary, followed by each endpoint's spec and results. This one is from a real run that took 38 ms:
+
+| Endpoint | Sent | Status codes |
+|---|---|---|
+| GET /invoices | 100 | 200 ×100 |
+| POST /invoices | 100 | 201 ×48, 409 ×52 |
+| GET /invoices/{invoice_id} | 100 | 200 ×2, 404 ×98 |
+| PUT /invoices/{invoice_id} | 100 | 200 ×1, 404 ×99 |
+| DELETE /invoices/{invoice_id} | 100 | 204 ×3, 404 ×97 |
+| PUT /invoices/{invoice_id}/status | 100 | 200 ×1, 404 ×96, 409 ×3 |
+
+Your counts may differ: the seed fixes the inputs, but the answers depend on the server's state and the order the requests arrive in.
+
+**Add it to CI.** Fuzzy exits with `0` whatever the API answered, so let the JSON report decide:
+```bash
+./fuzzy --remote http://localhost:8000 --spec examples/crud/artifacts/openapi.json --status 5xx,err --format json
+jq -e '.overview.resultsReported == 0' fuzzy-report.json   # fails on any 5xx or request without a response
+```
 
 ---
 
 ## Installation 🐝
 
-1. **Prerequisites**: Go 1.25.1 or higher
+Requires Go 1.25.1+, on Linux, macOS or Windows (Linux recommended for heavy testing).
 
-2. **Clone and build**:
 ```bash
 git clone https://github.com/cecinuga/fuzzy.git
 cd fuzzy
 go build -o fuzzy ./cmd/fuzzy
-```
-
-3. **Run the tests** (optional):
-```bash
-go test -race ./...
 ```
 
 ---
@@ -114,6 +160,8 @@ jq -r '.endpoints[].results.items[] | select(.status >= 500) | "\(.status) \(.en
 
 The default file name follows the format: `fuzzy-report.md` or `fuzzy-report.json`. `-o` writes to any path you choose, and its extension doesn't change the format, which only `--format` decides.
 
+The report is written once, when the run ends. With `--incremental`, it's also saved at 10 evenly spaced checkpoints during the run, so you can open it while Fuzzy works and a killed run keeps its last checkpoint. Each save replaces the file in one step, so you never read a half-written report. Until the final save the report is marked as partial (`interrupted` is `true` in JSON), and CI should only trust a report once Fuzzy has exited. The file stays empty until the first checkpoint, and a run of fewer than 11 requests has fewer checkpoints. A pipe, a device such as `/dev/stdout`, or a file in a read-only directory can't be replaced, so it only gets the final report.
+
 Both formats have the same structure and the same information:
 
 | Markdown | JSON |
@@ -125,6 +173,9 @@ Both formats have the same structure and the same information:
 | Skipped endpoints | `skipped` |
 | Warnings | `warnings` |
 
+<details>
+<summary>Full JSON example</summary>
+
 ```json
 {
   "interrupted": false,
@@ -132,7 +183,12 @@ Both formats have the same structure and the same information:
     "target": "http://localhost:8080",
     "spec": { "path": "api.json", "title": "Demo", "version": "2" },
     "dictionary": "",
-    "randomBounds": ["string: length 1..10 (unicode)", "int: 0..1000", "float: 0..1000"],
+    "randomBounds": {
+      "string": { "min": 1, "max": 10 },
+      "int": { "min": 0, "max": 1000 },
+      "float": { "min": 0, "max": 1000 }
+    },
+    "charset": "unicode",
     "statusFilter": "5xx,err",
     "seed": "42",
     "started": "2026-01-02T03:04:05Z",
@@ -159,8 +215,8 @@ Both formats have the same structure and the same information:
         "filter": "5xx,err",
         "statusCodes": { "404": 82, "500": 17, "ERR": 1 },
         "items": [
-          { "endpoint": "GET /v1/user/427", "status": 500, "message": "{\"error\":\"db timeout\"}", "input": "id=427" },
-          { "endpoint": "GET /v1/user/98", "status": null, "message": "context deadline exceeded", "input": "id=98" }
+          { "endpoint": "GET /v1/user/427", "status": 500, "message": "{\"error\":\"db timeout\"}", "input": "{\"path\":{\"id\":427}}" },
+          { "endpoint": "GET /v1/user/98", "status": null, "message": "context deadline exceeded", "input": "{\"path\":{\"id\":98}}" }
         ]
       }
     }
@@ -170,12 +226,16 @@ Both formats have the same structure and the same information:
 }
 ```
 
+</details>
+
 A few values are written differently, to suit the format:
 
 - **`status`**: A number, or `null` when the request got no response. Markdown shows that case as `ERR`, and `statusCodes` counts it under the `ERR` key.
 - **`seed`**: A string, because seeds use 64 bits and many JSON tools would round such a large number, and a rounded seed doesn't reproduce the run.
 - **Empty values**: Every key is always there. An empty list is `[]`, and text that doesn't apply is `""`, like `dictionary` when values are only random.
 - **Text from the server**: Markdown neutralizes markup and control characters so a response can't break the document. JSON keeps what the server really sent, so treat `message` as untrusted if you display it.
+
+In both formats, `input` is a JSON object written as a string. It holds the generated values by where they went: `path`, `query`, `header` and `cookie` map names to values, and `body` holds the body. Keys appear only when the request used them, so a request with no values has `{}`. To read it with `jq`, use `.input | fromjson`.
 
 ### Choosing the Values 🦊
 
@@ -194,6 +254,23 @@ With a dictionary, Fuzzy reads one value per line and works out the types each l
 ./fuzzy --remote http://localhost:8080 --spec api.json --dict values.txt
 ```
 
+### Where the Requests Go 🐳
+
+`--remote` can be a full URL, an FQDN or a `host:port`. Without a scheme, Fuzzy uses `https` when there is no port or the port is 443, and `http` for any other port. Write the scheme yourself to choose differently, for example `http://api.example.com`.
+
+| `--remote` | Same as |
+|---|---|
+| `api.example.com` | `https://api.example.com` |
+| `api.example.com:443` | `https://api.example.com:443` |
+| `localhost:8080` | `http://localhost:8080` |
+| `127.0.0.1:8080/v1` | `http://127.0.0.1:8080/v1` |
+
+If `--remote` has no path, the path of the spec's `servers` entry is added to it. If it has one, it's used as given. Either way the host always comes from `--remote`, so Fuzzy never calls the server named in the spec.
+
+| `--remote` | `servers` in the spec | Request |
+|---|---|---|
+| `http://localhost:8080` | `https://prod.example.com/api/v3` | `http://localhost:8080/api/v3/user/1` |
+| `http://localhost:8080/custom` | `https://prod.example.com/api/v3` | `http://localhost:8080/custom/user/1` |
 
 ---
 
@@ -201,9 +278,11 @@ With a dictionary, Fuzzy reads one value per line and works out the types each l
 
 ### Example 1: Hunting Server Errors 🐻
 
-**Command** (`testdata/api.json` is a sample spec you can try):
+This example shows what a finding looks like, on an illustrative API with a bug in `GET /user/{id}`.
+
+**Command**:
 ```bash
-./fuzzy --remote http://localhost:8080 --spec testdata/api.json --status 5xx,err --seed 42
+./fuzzy --remote http://localhost:8080 --spec api.json --status 5xx,err --seed 42
 ```
 
 **Output** (the middle line is the status bar, which updates in place while the requests run):
@@ -223,7 +302,7 @@ With a dictionary, Fuzzy reads one value per line and works out the types each l
 | GET /user/{id} | 100 | 17 | 404 ×83, 500 ×17 |
 ```
 
-Then a section for each endpoint with its spec and results:
+Then a section for each endpoint with its spec and results, including the exact input behind each failure:
 ```markdown
 ## GET /user/{id}
 
@@ -247,8 +326,8 @@ Fetch a user
 
 | Endpoint | Status | Message | Input |
 |---|---|---|---|
-| GET /v1/user/427 | 500 | {"error":"db timeout"} | id=427 |
-| GET /v1/user/98 | 500 | {"error":"db timeout"} | id=98, fields=\["age","name","email"\], X-Request-Id=c8ac4929-b19e-4fe3-ba2f-b60236b4d4e0 |
+| GET /v1/user/427 | 500 | {"error":"db timeout"} | {"path":{"id":427}} |
+| GET /v1/user/98 | 500 | {"error":"db timeout"} | {"header":{"X-Request-Id":"c8ac4929-b19e-4fe3-ba2f-b60236b4d4e0"},"path":{"id":98},"query":{"fields":\["age","name","email"\]}} |
 ```
 
 Requests that got no response appear with status `ERR` and the failure as their message.
@@ -272,89 +351,35 @@ root
 
 Here `1` and `999999` are also tried as integers, and the rest only as strings. A string parameter with `maxLength: 5` would only get `1`, `admin` and `root`, and one with `format: email` would get none of them, so it falls back to random valid emails.
 
-### Example 3: Trying It on a Local API 🐸
-
-`examples/crud` is a small in-memory CRUD invoice API, safe to fuzz, written in Go. It starts from the sample invoices in `db.json`, which it never changes, and has simple business rules that answer `409`. At startup it writes its spec to `artifacts/openapi.json`.
-
-**Start the API** (from the repository root):
-```bash
-go run ./examples/crud
-```
-
-**Command** (from the repository root, in another terminal):
-```bash
-./fuzzy --remote http://localhost:8000 --spec examples/crud/artifacts/openapi.json
-```
-
-### Where the Requests Go 🐳
-
-`--remote` can be a full URL, an FQDN or a `host:port`. Without a scheme, Fuzzy uses `https` when there is no port or the port is 443, and `http` for any other port. Write the scheme yourself to choose differently, for example `http://api.example.com`.
-
-| `--remote` | Same as |
-|---|---|
-| `api.example.com` | `https://api.example.com` |
-| `api.example.com:443` | `https://api.example.com:443` |
-| `localhost:8080` | `http://localhost:8080` |
-| `127.0.0.1:8080/v1` | `http://127.0.0.1:8080/v1` |
-
-If `--remote` has no path, the path of the spec's `servers` entry is added to it. If it has one, it's used as given. Either way the host always comes from `--remote`, so Fuzzy never calls the server named in the spec.
-
-| `--remote` | `servers` in the spec | Request |
-|---|---|---|
-| `http://localhost:8080` | `https://prod.example.com/api/v3` | `http://localhost:8080/api/v3/user/1` |
-| `http://localhost:8080/custom` | `https://prod.example.com/api/v3` | `http://localhost:8080/custom/user/1` |
-
----
-
-## File Structure 🦢
-
-```
-fuzzy/
-├── README.md            # This documentation
-├── CLAUDE.md            # Project guidance for Claude Code
-├── go.mod, go.sum       # Go module definition and checksums
-├── assets/              # Project assets
-│   ├── fuzzy.png        # Project logo/mascot image
-│   └── fuzzyPersonality.txt # Fuzzy's character description
-├── cmd/fuzzy/           # The Cobra command line and the run pipeline
-├── examples/crud/       # Local CRUD invoice API to try Fuzzy on
-├── internal/
-│   ├── config/          # Flags and their validation
-│   ├── openapi/         # Loads the spec, resolves $ref and allOf
-│   ├── generator/       # Turns schemas into valid values, dictionary included
-│   ├── fuzzer/          # Encodes requests, runs the worker pool, filters statuses
-│   ├── progress/        # Shows a run's progress: status bar or plain lines
-│   └── report/          # Writes the Markdown or JSON report
-└── testdata/
-    ├── api.json         # Sample OpenAPI spec
-    └── name.txt         # Sample dictionary
-```
-
 ---
 
 ## Command Line Options 🐊
 
+Every flag has a short name with two dashes and a long name with one, as `--help` shows: `--rem` and `-remote`. The spellings of earlier versions, such as `--remote` and `-n`, keep working, and the examples in this README use them.
+
 | Flag | Description | Example |
 |------|-------------|---------|
-| `--remote` | API to fuzz: URL, FQDN or `host:port` (required) | `--remote localhost:8080` |
-| `--spec` | OpenAPI 3.0 spec in JSON format (required) | `--spec api.json` |
-| `--status` | Status codes in the report (default all) | `--status 200,404,5xx,400-403,err` |
-| `--dict` | Values file, one value per line (default random values only) | `--dict values.txt` |
-| `--string-min` | Random string minimum length (default 1) | `--string-min 3` |
-| `--string-max` | Random string maximum length (default 10) | `--string-max 50` |
-| `--int-min` | Random integer minimum (default 0) | `--int-min -100` |
-| `--int-max` | Random integer maximum (default 1000) | `--int-max 100` |
-| `--float-min` | Random float minimum (default 0) | `--float-min 0.5` |
-| `--float-max` | Random float maximum (default 1000) | `--float-max 1.5` |
-| `--charset` | Random string characters, `unicode` or `alnum` (default `unicode`) | `--charset alnum` |
-| `-n`, `--requests` | Requests per endpoint (default 100, or the dictionary size if larger) | `-n 500` |
-| `-c`, `--concurrency` | Concurrent workers (default 20) | `-c 50` |
-| `--timeout` | Timeout of each request (default 10s) | `--timeout 2s` |
-| `-o`, `--output` | Report path (default `fuzzy-report.md`, or `fuzzy-report.json` with `--format json`) | `-o report.md` |
-| `--format` | Report format, `markdown` or `json` (default `markdown`) | `--format json` |
-| `-H`, `--header` | Header for every request, repeatable; overrides generated ones | `-H "Authorization: Bearer abc"` |
-| `-k`, `--insecure` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |
-| `--seed` | Seed to reproduce a run's inputs (default random, also for `0`; printed in the report) | `--seed 42` |
+| `--rem`, `-remote` | API to fuzz: URL, FQDN or `host:port` (required) | `--remote localhost:8080` |
+| `--spc`, `-spec` | OpenAPI 3.0 spec in JSON format (required) | `--spec api.json` |
+| `--sta`, `-status` | Status codes in the report (default all) | `--status 200,404,5xx,400-403,err` |
+| `--dic`, `-dict` | Values file, one value per line (default random values only) | `--dict values.txt` |
+| `--smn`, `-string-min` | Random string minimum length (default 1) | `--string-min 3` |
+| `--smx`, `-string-max` | Random string maximum length (default 10) | `--string-max 50` |
+| `--imn`, `-int-min` | Random integer minimum (default 0) | `--int-min -100` |
+| `--imx`, `-int-max` | Random integer maximum (default 1000) | `--int-max 100` |
+| `--fmn`, `-float-min` | Random float minimum (default 0) | `--float-min 0.5` |
+| `--fmx`, `-float-max` | Random float maximum (default 1000) | `--float-max 1.5` |
+| `--chr`, `-charset` | Random string characters, `unicode` or `alnum` (default `unicode`) | `--charset alnum` |
+| `--n`, `-requests` | Requests per endpoint (default 100, or the dictionary size if larger) | `-n 500` |
+| `--c`, `-concurrency` | Concurrent workers (default 20) | `-c 50` |
+| `--tmo`, `-timeout` | Timeout of each request (default 10s) | `--timeout 2s` |
+| `--o`, `-output` | Report path (default `fuzzy-report.md`, or `fuzzy-report.json` with `--format json`) | `-o report.md` |
+| `--fmt`, `-format` | Report format, `markdown` or `json` (default `markdown`) | `--format json` |
+| `--inc`, `-incremental` | Also save the report 10 times during the run (default only at the end) | `--incremental` |
+| `--log`, `-log` | Append a line for every request to this file (default no log) | `--log run.log` |
+| `--H`, `-header` | Header for every request, repeatable; overrides generated ones | `-H "Authorization: Bearer abc"` |
+| `--k`, `-insecure` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |
+| `--sd`, `-seed` | Seed to reproduce a run's inputs (default random, also for `0`; printed in the report) | `--seed 42` |
 
 ### Help, Version and Shell Completion 🦭
 
@@ -379,7 +404,7 @@ Older spellings still work, so existing scripts don't need to change: `-remote` 
 - **Schemas Without a Type**: Fuzzy infers it from the other keywords: `properties` or `required` mean `object`, `items` or `minItems` mean `array`, `format: int64` means `integer`, `minimum` means `number`. With no hint at all, it uses `string`.
 - **Null Values**: `null` is only sent in JSON and multipart bodies, where a multipart `null` is a part with `Content-Type: application/json`. Parameters, form bodies, text bodies and binary bodies can't represent it, so they always get a real value.
 - **Spec Format**: Only OpenAPI 3.0.x in JSON. Swagger 2.0, OpenAPI 3.1 and YAML are refused with an error, and so are `$ref`s that point outside the document.
-- **Progress and Exit Codes**: In a terminal, a status bar on stderr updates in place during the run and disappears when it ends. Above it, the endpoints change color: red when not tested yet, yellow while sending requests, white once all of them are sent. The list stays on screen after the run; if it doesn't fit, the endpoints still in progress come first and the last line counts the rest. With `NO_COLOR` set or on Windows there is only the bar. When stderr is redirected, or with `TERM=dumb`, Fuzzy prints a plain `[+] 1200/6000 requests` line every 5 seconds instead. The `5xx` and `err` counters cover every request, whatever `--status` keeps for the report. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
+- **Progress and Exit Codes**: In a terminal, a status bar on stderr updates in place during the run and disappears when it ends. It drops details such as the speed when the terminal is narrow. Above it, the endpoints change color: red when not tested yet, yellow while sending requests, white once all of them are sent. The list stays on screen after the run; if it doesn't fit, the endpoints still in progress come first and the last line counts the rest. With `NO_COLOR` set or on Windows there is only the bar. When stderr is redirected, or with `TERM=dumb`, Fuzzy prints a plain `[+] 1200/6000 requests` line every 5 seconds instead. The `5xx` and `err` counters cover every request, whatever `--status` keeps for the report. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
 
 ### Known Limitations 🐙
 
@@ -392,33 +417,54 @@ Older spellings still work, so existing scripts don't need to change: `-remote` 
 
 ## Use Cases 🦀
 
-This fuzzer is particularly useful for:
-
-- **Authentication Testing**: Test login endpoints with different password combinations
-- **Parameter Validation**: Check that APIs accept every value their spec says is valid
-- **Security Testing**: Send injection, XSS and path traversal payloads from a dictionary, wherever the spec allows them
-- **Error Handling**: Find valid requests that still make the API fail (`--status 5xx,err`)
-- **Rate Limiting**: Test API rate limiting mechanisms
-- **Input Sanitization**: Check if the API properly sanitizes user input
+- **Crash Hunting**: Find valid requests that still make the API fail (`--status 5xx,err`).
+- **Spec Drift**: A request built from the spec shouldn't be rejected as invalid, so a `400` or `422` points at a spec and an implementation that disagree (`--status 400,422`).
+- **Security Testing**: Send injection, XSS and path traversal payloads from a dictionary, wherever the spec allows them, and check how the API handles them.
+- **CI Smoke Tests**: Fuzz a fresh deployment on every pipeline run and gate on the JSON report.
+- **Rate Limiting**: Raise `-c` and see which endpoints answer `429` (`--status 429`).
 
 ---
 
-## Best Practices 🦋
+## Safety and Best Practices 🦋
 
-1. **Start Small**: Begin with a low `-n` and a small set of test values and expand gradually
-2. **Monitor Responses**: Pay attention to different HTTP status codes (200, 401, 403, 500)
-3. **Rate Limiting**: Lower `-c` if needed to avoid overwhelming the target
-4. **Legal Considerations**: Only test systems you own or have explicit permission to test
-5. **Report Analysis**: Use `--status 5xx,err` to focus the report on what went wrong
+Fuzzy really changes or deletes data, so only test systems you own or have explicit permission to test, and never production. This tool is for educational and authorized testing purposes only, and the authors are not responsible for any misuse of it.
+
+1. **Isolate the Target**: Run it against a disposable environment, such as a container or a VM, with limits on its CPU and memory. Don't fuzz sensitive production data.
+2. **Start Small**: Begin with a low `-n` and a small set of test values, then expand gradually. Lower `-c` to avoid overwhelming the target.
+3. **Focus the Report**: Use `--status 5xx,err` to see what went wrong.
+4. **Keep the Seed**: It's in every report, and it reproduces the inputs of the run.
+5. **Use Real Inputs**: Real-world values in your dictionary improve the results. Anonymize sensitive data first.
 
 ---
+
+## File Structure 🦢
+
+```
+fuzzy/
+├── README.md            # This documentation
+├── CLAUDE.md            # Project guidance for Claude Code
+├── go.mod, go.sum       # Go module definition and checksums
+├── assets/              # Project logo and Fuzzy's character description
+├── cmd/fuzzy/           # The Cobra command line and the run pipeline
+├── examples/crud/       # Local CRUD invoice API to try Fuzzy on
+└── internal/
+    ├── config/          # Flags and their validation
+    ├── openapi/         # Loads the spec, resolves $ref and allOf
+    ├── generator/       # Turns schemas into valid values, dictionary included
+    ├── fuzzer/          # Encodes requests, runs the worker pool, filters statuses
+    ├── progress/        # Shows a run's progress: status bar or plain lines
+    └── report/          # Writes the Markdown or JSON report
+```
+
+---
+
 ## Contributing 🐜
 
 Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
 
 1. Fork the repo
 2. Create a branch `feature/xxx`
-3. Add tests for new features
+3. Add tests for new features, and run `go test -race ./...`
 4. Open a PR with description and use case
 
 Guidelines:
@@ -427,24 +473,36 @@ Guidelines:
 * Add unit tests for new schema keywords and formats
 * Document new flags in the Command Line Options table of this README
 
+---
+
+## Roadmap 🦉
+
+- 🔴 high impact features or improvements or bug fixes should be prioritized.
+- 🟠 medium-high general improvements to code quality, usability, performance and testing.
+- 🟡 medium features, improvement or refactoring.
+- 🟢 low urgency features, minor tweaks, documentation updates.
+- 🔵 funny little things.
+
+### To-Do Functionality List 🦞
+
+- 🔴 Add stateful testing: chain requests and reuse values from responses, such as created IDs, so calls like `GET /users/{id}` reach the code behind the "not found" check
+- 🔴 Add support for certificates
+- 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension
+- 🟠 Add support for more response formats (e.g., XML, HTML)
+- 🟡 Add support for more authentication methods (e.g., OAuth, API keys)
+- 🟡 Implement result export to CSV
+- 🟢 Add support for XML body for SOAP APIs
+- 🟢 Add file logger
+
+### To-Do Improvement List 🐍
+
+- 🟠 Include response time measurements
+- 🟠 Generalize and modularize code for easier extension
+- 🟠 Implement request rate limiting
+- 🔵 Calculate and optimize code complexity
+
+---
+
 ## License 🐮
 
-This project is open source. Please check the license file for details.
-
----
-
-## Disclaimer 🐰
-
-This tool is for educational and authorized testing purposes only. Always ensure you have proper permission before testing any systems. The authors are not responsible for any misuse of this tool.
-
----
-
-## Best practices and security 🐶
-
-* Run fuzzing in isolated environments (containers, VMs) to avoid harming real systems.
-* Set resource limits (CPU, memory) for the target.
-* Do not fuzz sensitive production data.
-* Record seeds and metadata to reproduce results.
-* Use real-world corpus inputs (telemetry/customer data) to improve effectiveness — anonymize sensitive data first.
-
----
+The repository has no license file yet.

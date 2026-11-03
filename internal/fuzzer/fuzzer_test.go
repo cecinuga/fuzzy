@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"math/rand/v2"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -89,8 +90,41 @@ func TestSendsSemanticallyValidPathValues(t *testing.T) {
 		}
 	}
 	first := outcomes[0].Results[0]
-	if !strings.HasPrefix(first.Endpoint, "GET /user/") || !strings.HasPrefix(first.Input, "id=") {
+	if !strings.HasPrefix(first.Endpoint, "GET /user/") || !strings.HasPrefix(first.Input, `{"path":{"id":`) {
 		t.Errorf("result = %+v", first)
+	}
+}
+
+func TestInputIsJSONGroupedByLocation(t *testing.T) {
+	targets, _ := compileSpec(t, "http://target", paths(`{"/a/{id}":{"post":{
+		"parameters":[
+			{"name":"id","in":"path","required":true,"schema":{"type":"integer","enum":[7]}},
+			{"name":"id","in":"header","required":true,"schema":{"type":"string","enum":["h"]}},
+			{"name":"body","in":"query","required":true,"schema":{"type":"string","enum":["<q>"]}}
+		],
+		"requestBody":{"required":true,"content":{"application/json":{"schema":{
+			"type":"object","required":["n"],"properties":{"n":{"type":"integer","enum":[1]}}
+		}}}},
+		"responses":{"200":{"description":"ok"}}
+	}}}`))
+	_, input, err := targets[0].build(context.Background(), rand.New(rand.NewPCG(1, 2)), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"body":{"n":1},"header":{"id":"h"},"path":{"id":7},"query":{"body":"<q>"}}`
+	if input != want {
+		t.Errorf("input = %s, want %s", input, want)
+	}
+}
+
+func TestInputOfARequestWithoutValuesIsAnEmptyObject(t *testing.T) {
+	targets, _ := compileSpec(t, "http://target", paths(`{"/a":{"get":{"responses":{"200":{"description":"ok"}}}}}`))
+	_, input, err := targets[0].build(context.Background(), rand.New(rand.NewPCG(1, 2)), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if input != "{}" {
+		t.Errorf("input = %q, want {}", input)
 	}
 }
 
@@ -295,10 +329,10 @@ func TestUnsupportedRequiredBodyIsSkippedOptionalIsOmitted(t *testing.T) {
 	var got capture
 	srv := got.server(t, 200)
 	targets, skipped := compileSpec(t, srv.URL, paths(`{
-		"/required":{"post":{"requestBody":{"required":true,"content":{"application/xml":{"schema":{"type":"string"}}}}}},
-		"/optional":{"post":{"requestBody":{"content":{"application/xml":{"schema":{"type":"string"}}}}}}
+		"/required":{"post":{"requestBody":{"required":true,"content":{"application/protobuf":{"schema":{"type":"string"}}}}}},
+		"/optional":{"post":{"requestBody":{"content":{"application/protobuf":{"schema":{"type":"string"}}}}}}
 	}`))
-	if len(skipped) != 1 || skipped[0].Op.Path != "/required" || !strings.Contains(skipped[0].Reason, "application/xml") {
+	if len(skipped) != 1 || skipped[0].Op.Path != "/required" || !strings.Contains(skipped[0].Reason, "application/protobuf") {
 		t.Fatalf("skipped = %+v", skipped)
 	}
 	Run(context.Background(), options(), targets)
@@ -853,5 +887,55 @@ func TestInterruptedEndpointIsNotDone(t *testing.T) {
 
 	if !final.Final || final.Endpoints[0].State != EndpointTesting {
 		t.Errorf("final snapshot = %+v, want the endpoint still testing", final)
+	}
+}
+
+// runCheckpoints runs requests calls against one endpoint and returns how many
+// calls each checkpoint had seen.
+func runCheckpoints(t *testing.T, requests, checkpoints int) []int {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer srv.Close()
+	targets, _ := compileSpec(t, srv.URL, paths(`{"/a": {"get": {"responses": {"200": {"description": "ok"}}}}}`))
+
+	var seen []int
+	opts := options()
+	opts.Requests = requests
+	opts.Checkpoints = checkpoints
+	opts.Checkpoint = func(outcomes []Outcome) {
+		if !slices.IsSortedFunc(outcomes[0].Results, func(a, b Result) int { return a.iter - b.iter }) {
+			t.Error("a checkpoint must see its results in request order")
+		}
+		seen = append(seen, outcomes[0].Sent)
+	}
+	Run(context.Background(), opts, targets)
+	return seen
+}
+
+func TestCheckpointsAreEvenlySpacedBeforeTheEnd(t *testing.T) {
+	got := runCheckpoints(t, 110, 10)
+	want := []int{10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
+	if !slices.Equal(got, want) {
+		t.Errorf("checkpoints at %v, want %v", got, want)
+	}
+}
+
+func TestCheckpointCountHoldsWhenSpacingIsUneven(t *testing.T) {
+	for _, requests := range []int{11, 12, 13, 57, 1000} {
+		got := runCheckpoints(t, requests, 10)
+		if len(got) != 10 {
+			t.Errorf("%d requests: %d checkpoints (%v), want 10", requests, len(got), got)
+		}
+		if last := got[len(got)-1]; last >= requests {
+			t.Errorf("%d requests: a checkpoint at %d is not before the end", requests, last)
+		}
+	}
+}
+
+func TestShortRunHasFewerCheckpoints(t *testing.T) {
+	for requests, want := range map[int][]int{1: nil, 2: {1}, 5: {1, 2, 3, 4}} {
+		if got := runCheckpoints(t, requests, 10); !slices.Equal(got, want) {
+			t.Errorf("%d requests: checkpoints at %v, want %v", requests, got, want)
+		}
 	}
 }

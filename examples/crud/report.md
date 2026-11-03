@@ -5,7 +5,8 @@
 | **Target** | http://localhost:8000 |
 | **Spec** | ./examples/crud/artifacts/openapi.json (Fuzzy CRUD example 1.0.0) |
 | **Dictionary** | none (random values) |
-| **Random bounds** | string length 1..10 (unicode), int 0..1000, float 0..1000 |
+| **Random bounds** | <ul><li>string: {min: 1, max: 10}</li><li>int: {min: 0, max: 1000}</li><li>float: {min: 0, max: 1000}</li></ul> |
+| **Charset** | unicode |
 | **Status filter** | all |
 | **Seed** | 4121700419951235171 |
 | **Started** | 2026-11-03T02:26:27+01:00 |

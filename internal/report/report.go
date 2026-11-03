@@ -1,4 +1,5 @@
-// Package report renders the outcome of a run as a Markdown or JSON document.
+// Package report renders the outcome of a run as a document: Markdown, JSON, plain
+// text, CSV, XML or HTML.
 package report
 
 import (
@@ -7,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 	"unicode"
 
 	"fuzzy/internal/fuzzer"
+	"fuzzy/internal/generator"
 	"fuzzy/internal/openapi"
 )
 
@@ -25,23 +28,51 @@ type Format string
 const (
 	FormatMarkdown Format = "markdown"
 	FormatJSON     Format = "json"
+	FormatText     Format = "txt"
+	FormatCSV      Format = "csv"
+	FormatXML      Format = "xml"
+	FormatHTML     Format = "html"
 )
+
+// Formats lists every format.
+func Formats() []Format {
+	return []Format{FormatMarkdown, FormatJSON, FormatText, FormatCSV, FormatXML, FormatHTML}
+}
 
 // ParseFormat returns the format with this name.
 func ParseFormat(name string) (Format, error) {
-	switch format := Format(name); format {
-	case FormatMarkdown, FormatJSON:
+	if format := Format(name); slices.Contains(Formats(), format) {
 		return format, nil
 	}
-	return "", fmt.Errorf("unknown format %q (want %s or %s)", name, FormatMarkdown, FormatJSON)
+	return "", fmt.Errorf("unknown format %q (want markdown, json, txt, csv, xml or html)", name)
+}
+
+// FormatOfPath returns the format a file's extension asks for, ignoring case. ok
+// is false for an extension that doesn't name a format, or for none at all.
+func FormatOfPath(path string) (format Format, ok bool) {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".md", ".markdown":
+		return FormatMarkdown, true
+	case ".json":
+		return FormatJSON, true
+	case ".txt":
+		return FormatText, true
+	case ".csv":
+		return FormatCSV, true
+	case ".xml":
+		return FormatXML, true
+	case ".html", ".htm":
+		return FormatHTML, true
+	}
+	return "", false
 }
 
 // Extension returns the file extension of the format, with its dot.
 func (f Format) Extension() string {
-	if f == FormatJSON {
-		return ".json"
+	if f == FormatMarkdown {
+		return ".md"
 	}
-	return ".md"
+	return "." + string(f)
 }
 
 // Report is the input of Write.
@@ -52,11 +83,11 @@ type Report struct {
 	Spec        string
 	Dictionary  string
 	Filter      fuzzer.StatusFilter
-	Bounds      []string // one entry per data type
+	Bounds      generator.Bounds
 	Seed        uint64
 	Started     time.Time
 	Duration    time.Duration
-	Interrupted bool
+	Interrupted bool // the results are partial: the run was stopped, or is still going
 	Warnings    []string
 	Outcomes    []fuzzer.Outcome
 	Skipped     []fuzzer.Skipped
@@ -69,6 +100,14 @@ func Write(w io.Writer, format Format, r Report) error {
 		return writeMarkdown(w, newDocument(r))
 	case FormatJSON:
 		return writeJSON(w, newDocument(r))
+	case FormatText:
+		return writeText(w, newDocument(r))
+	case FormatCSV:
+		return writeCSV(w, newDocument(r))
+	case FormatXML:
+		return writeXML(w, newDocument(r))
+	case FormatHTML:
+		return writeHTML(w, newDocument(r))
 	}
 	return fmt.Errorf("unknown report format %q", format)
 }
@@ -90,7 +129,7 @@ func writeMarkdown(w io.Writer, doc document) error {
 
 	b.WriteString("# Fuzzy report\n\n")
 	if doc.Interrupted {
-		b.WriteString("> ⚠️ The run was interrupted: these results are partial.\n\n")
+		b.WriteString("> ⚠️ The run was interrupted or is still going: these results are partial.\n\n")
 	}
 	writeOverview(&b, doc.Overview)
 	writeSummary(&b, doc.Summary)
@@ -127,7 +166,8 @@ func writeOverview(b *strings.Builder, o overview) {
 		{"Target", escape(o.Target)},
 		{"Spec", escape(fmt.Sprintf("%s (%s %s)", o.Spec.Path, o.Spec.Title, o.Spec.Version))},
 		{"Dictionary", escape(dictionary)},
-		{"Random bounds", cellList(o.Bounds)},
+		{"Random bounds", cellList(o.Bounds.lines())},
+		{"Charset", escape(o.Charset)},
 		{"Status filter", escape(o.Filter)},
 		{"Seed", strconv.FormatUint(o.Seed, 10)},
 		{"Started", o.Started},
@@ -153,9 +193,9 @@ func cellList(items []string) string {
 }
 
 func writeSummary(b *strings.Builder, rows []summaryRow) {
-	b.WriteString("## Summary\n\n| Endpoint | Sent | Reported | Status codes |\n|---|---|---|---|\n")
+	b.WriteString("## Summary\n\n| Endpoint | Sent | Reported | Status codes | Response time |\n|---|---|---|---|---|\n")
 	for _, row := range rows {
-		fmt.Fprintf(b, "| %s | %d | %d | %s |\n", escape(row.Endpoint), row.Sent, row.Reported, countsLine(row.StatusCodes))
+		fmt.Fprintf(b, "| %s | %d | %d | %s | %s |\n", escape(row.Endpoint), row.Sent, row.Reported, countsLine(row.StatusCodes), row.ResponseTime.short())
 	}
 	b.WriteString("\n")
 }
@@ -174,15 +214,15 @@ func writeEndpoint(b *strings.Builder, e *endpoint) {
 	writeParameters(b, e.Parameters)
 
 	res := &e.Results
-	fmt.Fprintf(b, "### Results\n\n%d sent, %d reported (filter: %s). Status codes: %s.\n\n",
-		res.Sent, res.Reported, escape(res.Filter), countsLine(res.StatusCodes))
+	fmt.Fprintf(b, "### Results\n\n%d sent, %d reported (filter: %s). Status codes: %s.\n\nResponse time: %s.\n\n",
+		res.Sent, res.Reported, escape(res.Filter), countsLine(res.StatusCodes), res.ResponseTime.text())
 	if len(res.Items) == 0 {
 		return
 	}
-	b.WriteString("| Endpoint | Status | Message | Input |\n|---|---|---|---|\n")
+	b.WriteString("| Endpoint | Status | Message | Input | Time |\n|---|---|---|---|---|\n")
 	for _, item := range res.Items {
-		fmt.Fprintf(b, "| %s | %s | %s | %s |\n",
-			escape(item.Endpoint), statusLabel(int(item.Status)), escape(item.Message), escape(item.Input))
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n",
+			escape(item.Endpoint), statusLabel(int(item.Status)), escape(item.Message), escape(item.Input), millisText(item.DurationMs))
 	}
 	b.WriteString("\n")
 }
@@ -352,8 +392,15 @@ var escaper = strings.NewReplacer(
 
 // escape makes untrusted text safe for a one-line Markdown table cell.
 func escape(s string) string {
+	return escaper.Replace(oneLine(s))
+}
+
+// oneLine keeps untrusted text on its line and takes out what could change how it
+// displays: control characters such as terminal escapes, and invisible format
+// characters such as bidirectional overrides.
+func oneLine(s string) string {
 	s = strings.ToValidUTF8(s, "�")
-	s = strings.Map(func(c rune) rune {
+	return strings.Map(func(c rune) rune {
 		switch {
 		case c == '\n' || c == '\r' || c == '\t':
 			return ' '
@@ -362,5 +409,4 @@ func escape(s string) string {
 		}
 		return c
 	}, s)
-	return escaper.Replace(s)
 }

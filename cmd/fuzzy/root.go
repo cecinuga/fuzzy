@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"runtime/debug"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -12,21 +13,24 @@ import (
 )
 
 const longDescription = `Fuzzy sends schema-valid requests, with random or dictionary values, to every
-endpoint of an OpenAPI 3.0 spec and writes what came back to a Markdown or JSON
-report.
+endpoint of an OpenAPI 3.0 spec and writes what came back to a report: Markdown,
+JSON, plain text, CSV, XML or HTML.
 
 Fuzzy calls every operation with valid values, DELETE and PUT included, so it
 really changes or deletes data. Only run it against disposable or local targets
 that you have permission to test, never production.`
 
 const examples = `  # Keep only server errors and requests that got no response
-  fuzzy --remote http://localhost:8080 --spec api.json --status 5xx,err --seed 42
+  fuzzy -remote http://localhost:8080 -spec api.json -status 5xx,err -seed 42
 
   # Authenticated API, with a dictionary
-  fuzzy --remote https://api.example.com/v3 --spec api.json --dict values.txt -H "Authorization: Bearer $TOKEN"
+  fuzzy -remote https://api.example.com/v3 -spec api.json -dict values.txt --H "Authorization: Bearer $TOKEN"
 
   # A JSON report, for scripts and CI
-  fuzzy --remote http://localhost:8080 --spec api.json --format json
+  fuzzy -remote http://localhost:8080 -spec api.json -format json
+
+  # The report's extension picks its format, and the log keeps every request
+  fuzzy -remote http://localhost:8080 -spec api.json -status 5xx,err --o results.csv -log run.log
 
   # Shell completion, see 'fuzzy completion --help'
   fuzzy completion bash`
@@ -43,7 +47,7 @@ func newRootCommand() *cobra.Command {
 	var flags config.Flags
 
 	cmd := &cobra.Command{
-		Use:     "fuzzy --remote <url> --spec <file> [flags]",
+		Use:     "fuzzy -remote <url> -spec <file> [flags]",
 		Short:   "Fuzz an HTTP API from its OpenAPI 3.0 spec",
 		Long:    longDescription,
 		Example: examples,
@@ -67,6 +71,9 @@ func newRootCommand() *cobra.Command {
 	cmd.Flags().SortFlags = false
 	flags.Register(cmd.Flags())
 
+	cobra.AddTemplateFunc("flagUsages", flagUsages)
+	cmd.SetUsageTemplate(strings.ReplaceAll(cmd.UsageTemplate(), ".LocalFlags.FlagUsages", "flagUsages ."))
+
 	// These only fail on the name of a flag that doesn't exist: a programming error.
 	cobra.CheckErr(errors.Join(
 		cmd.MarkFlagRequired("remote"),
@@ -75,7 +82,7 @@ func newRootCommand() *cobra.Command {
 		cmd.RegisterFlagCompletionFunc("remote", cobra.NoFileCompletions),
 		cmd.RegisterFlagCompletionFunc("status", cobra.NoFileCompletions),
 		cmd.RegisterFlagCompletionFunc("format", cobra.FixedCompletions(
-			[]string{string(report.FormatMarkdown), string(report.FormatJSON)},
+			formatNames(),
 			cobra.ShellCompDirectiveNoFileComp,
 		)),
 		cmd.RegisterFlagCompletionFunc("charset", cobra.FixedCompletions(
@@ -85,6 +92,15 @@ func newRootCommand() *cobra.Command {
 	))
 
 	return cmd
+}
+
+func formatNames() []string {
+	formats := report.Formats()
+	names := make([]string, len(formats))
+	for i, format := range formats {
+		names[i] = string(format)
+	}
+	return names
 }
 
 // version is the module version stamped by the Go toolchain at build time.

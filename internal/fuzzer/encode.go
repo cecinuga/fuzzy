@@ -207,10 +207,12 @@ const (
 	bodyForm
 	bodyMultipart
 	bodyRaw
+	bodyXML
 )
 
 // bodyKindOf classifies a media type; ok is false when no valid body can be
-// produced for it (XML, for one, cannot be derived from the schema alone).
+// produced for it. XML ranks last, so that a spec offering another media type
+// keeps getting the same requests as before XML bodies existed.
 func bodyKindOf(contentType string) (kind bodyKind, rank int, ok bool) {
 	media, _, _ := strings.Cut(strings.ToLower(contentType), ";")
 	media = strings.TrimSpace(media)
@@ -223,7 +225,9 @@ func bodyKindOf(contentType string) (kind bodyKind, rank int, ok bool) {
 		return bodyForm, 2, true
 	case media == "multipart/form-data":
 		return bodyMultipart, 3, true
-	case strings.Contains(media, "xml"):
+	case strings.HasSuffix(media, "/xml") || strings.HasSuffix(media, "+xml"):
+		return bodyXML, 7, true
+	case strings.Contains(media, "xml"): // a DTD or an external entity, not a document
 		return 0, 0, false
 	case strings.HasPrefix(media, "text/"):
 		return bodyRaw, 4, true
@@ -248,6 +252,8 @@ func encodeBody(b *targetBody, v any) ([]byte, string, error) {
 		return encodeForm(b.fields, v), contentType, nil
 	case bodyMultipart:
 		return encodeMultipart(b.binary, v)
+	case bodyXML:
+		return encodeXML(b.xml, v), contentType, nil
 	}
 	return []byte(scalar(v)), contentType, nil
 }

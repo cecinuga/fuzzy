@@ -1,6 +1,7 @@
 package config
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -51,7 +52,17 @@ func TestReportFormatAndOutput(t *testing.T) {
 		"markdown":          {[]string{"--format", "markdown"}, report.FormatMarkdown, "fuzzy-report.md"},
 		"json":              {[]string{"--format", "json"}, report.FormatJSON, "fuzzy-report.json"},
 		"json to a path":    {[]string{"--format", "json", "-o", "out.txt"}, report.FormatJSON, "out.txt"},
-		"path keeps format": {[]string{"-o", "out.json"}, report.FormatMarkdown, "out.json"},
+		"path picks json":   {[]string{"-o", "out.json"}, report.FormatJSON, "out.json"},
+		"path picks csv":    {[]string{"-o", "OUT.CSV"}, report.FormatCSV, "OUT.CSV"},
+		"path picks txt":    {[]string{"-o", "dir.d/out.txt"}, report.FormatText, "dir.d/out.txt"},
+		"path picks xml":    {[]string{"-o", "out.xml"}, report.FormatXML, "out.xml"},
+		"path picks html":   {[]string{"-o", "out.htm"}, report.FormatHTML, "out.htm"},
+		"flag beats path":   {[]string{"--format", "markdown", "-o", "out.json"}, report.FormatMarkdown, "out.json"},
+		"unknown extension": {[]string{"-o", "out.bak"}, report.FormatMarkdown, "out.bak"},
+		"no extension":      {[]string{"-o", "out"}, report.FormatMarkdown, "out"},
+		"flag names file":   {[]string{"--format", "csv"}, report.FormatCSV, "fuzzy-report.csv"},
+		"txt names file":    {[]string{"--format", "txt"}, report.FormatText, "fuzzy-report.txt"},
+		"html names file":   {[]string{"--format", "html"}, report.FormatHTML, "fuzzy-report.html"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -148,29 +159,31 @@ func TestParseRejectsBadInput(t *testing.T) {
 		args []string
 		want string
 	}{
-		"empty remote":  {[]string{"--remote", "", "--spec", "s.json"}, "--remote"},
-		"empty spec":    {[]string{"--remote", "http://x.io", "--spec", ""}, "--spec"},
-		"ftp":           {[]string{"--remote", "ftp://x.io", "--spec", "s"}, "--remote"},
-		"no host":       {[]string{"--remote", "http://", "--spec", "s"}, "--remote"},
-		"only a port":   {[]string{"--remote", ":8080", "--spec", "s"}, "--remote"},
-		"port too big":  {[]string{"--remote", "x.io:70000", "--spec", "s"}, "invalid port"},
-		"port zero":     {[]string{"--remote", "x.io:0", "--spec", "s"}, "invalid port"},
-		"port not num":  {[]string{"--remote", "x.io:abc", "--spec", "s"}, "--remote"},
-		"space in host": {[]string{"--remote", "x y.io", "--spec", "s"}, "--remote"},
-		"unknown flag":  {with("--nope"), "unknown flag"},
-		"bad status":    {with("--status", "abc"), "--status"},
-		"bad strings":   {with("--string-min", "9", "--string-max", "2"), "string minimum"},
-		"negative len":  {with("--string-min", "-1"), "negative"},
-		"bad ints":      {with("--int-min", "9", "--int-max", "2"), "int minimum"},
-		"bad floats":    {with("--float-min", "9", "--float-max", "2"), "float minimum"},
-		"bad charset":   {with("--charset", "x"), "charset"},
-		"negative n":    {with("-n", "-1"), "--requests"},
-		"zero workers":  {with("-c", "0"), "--concurrency"},
-		"zero timeout":  {with("--timeout", "0s"), "--timeout"},
-		"bad format":    {with("--format", "xml"), "--format"},
-		"bad header":    {with("-H", "nocolon"), "Name: value"},
-		"empty header":  {with("-H", ": v"), "Name: value"},
-		"non-numeric n": {with("-n", "many"), "invalid argument"},
+		"empty remote":          {[]string{"--remote", "", "--spec", "s.json"}, "--remote"},
+		"empty spec":            {[]string{"--remote", "http://x.io", "--spec", ""}, "--spec"},
+		"ftp":                   {[]string{"--remote", "ftp://x.io", "--spec", "s"}, "--remote"},
+		"no host":               {[]string{"--remote", "http://", "--spec", "s"}, "--remote"},
+		"only a port":           {[]string{"--remote", ":8080", "--spec", "s"}, "--remote"},
+		"port too big":          {[]string{"--remote", "x.io:70000", "--spec", "s"}, "invalid port"},
+		"port zero":             {[]string{"--remote", "x.io:0", "--spec", "s"}, "invalid port"},
+		"port not num":          {[]string{"--remote", "x.io:abc", "--spec", "s"}, "--remote"},
+		"space in host":         {[]string{"--remote", "x y.io", "--spec", "s"}, "--remote"},
+		"unknown flag":          {with("--nope"), "unknown flag"},
+		"bad status":            {with("--status", "abc"), "--status"},
+		"bad strings":           {with("--string-min", "9", "--string-max", "2"), "string minimum"},
+		"negative len":          {with("--string-min", "-1"), "negative"},
+		"bad ints":              {with("--int-min", "9", "--int-max", "2"), "int minimum"},
+		"bad floats":            {with("--float-min", "9", "--float-max", "2"), "float minimum"},
+		"bad charset":           {with("--charset", "x"), "charset"},
+		"negative n":            {with("-n", "-1"), "--requests"},
+		"zero workers":          {with("-c", "0"), "--concurrency"},
+		"zero timeout":          {with("--timeout", "0s"), "--timeout"},
+		"bad format":            {with("--format", "yaml"), "--format"},
+		"log is report":         {with("--log", "./r.md", "-o", "r.md"), "--log"},
+		"log is default report": {with("--log", "fuzzy-report.md"), "--log"},
+		"bad header":            {with("-H", "nocolon"), "Name: value"},
+		"empty header":          {with("-H", ": v"), "Name: value"},
+		"non-numeric n":         {with("-n", "many"), "invalid argument"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -179,5 +192,65 @@ func TestParseRejectsBadInput(t *testing.T) {
 				t.Fatalf("error = %v, want it to mention %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestIncrementalReportIsOptIn(t *testing.T) {
+	base := []string{"--remote", "http://x.io", "--spec", "api.json"}
+
+	cfg, err := parse(base...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Incremental {
+		t.Error("the report must only be written at the end by default")
+	}
+
+	cfg, err = parse(append(base, "--incremental")...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Incremental {
+		t.Error("--incremental was not applied")
+	}
+}
+
+func TestEveryFlagHasAShortName(t *testing.T) {
+	var flags Flags
+	fs := pflag.NewFlagSet("fuzzy", pflag.ContinueOnError)
+	flags.Register(fs)
+
+	seen := map[string]string{}
+	fs.VisitAll(func(f *pflag.Flag) {
+		short := ShortName(f)
+		if short == "" || len(short) > maxShortName {
+			t.Errorf("--%s has short name %q: add one of up to %d letters to shortNames", f.Name, short, maxShortName)
+		}
+		if other, taken := seen[short]; taken {
+			t.Errorf("--%s and --%s share the short name %q", f.Name, other, short)
+		}
+		seen[short] = f.Name
+		if f.Shorthand == "" && fs.Lookup(short) != f {
+			t.Errorf("short name %q doesn't lead to --%s", short, f.Name)
+		}
+	})
+	for name := range shortNames {
+		if fs.Lookup(name) == nil {
+			t.Errorf("shortNames lists %q, which isn't a flag", name)
+		}
+	}
+}
+
+func TestShortAndLongNamesParseTheSame(t *testing.T) {
+	long, err := parse("--remote", "http://x.io", "--spec", "api.json", "--charset", "alnum", "--seed", "7", "--incremental", "--string-max", "4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	short, err := parse("--rem", "http://x.io", "--spc", "api.json", "--chr", "alnum", "--sd", "7", "--inc", "--smx", "4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(long, short) {
+		t.Errorf("long %+v, short %+v", long, short)
 	}
 }
