@@ -42,10 +42,13 @@ The body matches the schema in every field, so it got past validation and reache
 * **Zero setup**: Two flags, `--remote` and `--spec`. Fuzzy works out the endpoints and what each one accepts.
 * **Valid requests, however complex the spec**: Respects types, formats, ranges, lengths, patterns, enums, required fields, `$ref`, `allOf`, `oneOf`, `anyOf` and discriminators.
 * **Your choice of endpoints**: Include or exclude them by method, path pattern or tag, and preview the result with `--list`.
-* **Every place a value can go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text and binary bodies.
+* **Every place a value can go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text, binary and XML bodies, SOAP envelopes included.
 * **Your payloads, where they fit**: Dictionary values are only used where the spec allows them. Anything they don't cover gets a random valid value.
 * **Failures you can reproduce**: Every report records its seed, and the same seed produces the same inputs at any concurrency.
-* **Reports for people and scripts**: Markdown to read, JSON for CI, with the same information in both. Filter by status code without losing each endpoint's totals.
+* **Reports for people and scripts**: Markdown, HTML or plain text to read, JSON or XML for CI, CSV for a spreadsheet, chosen by the file extension. Filter by status code without losing each endpoint's totals.
+* **Response times**: Each endpoint's minimum, mean, percentiles and maximum, and the time of every reported result.
+* **Messages you can read**: XML and HTML answers are reduced to their text, so a SOAP fault reads `faultcode: soap:Server; faultstring: db down`.
+* **A log of everything**: `--log` keeps a line for every request, whatever `--status` leaves out of the report.
 * **Built for pipelines**: Stable exit codes, and a plain-line progress mode when stderr isn't a terminal.
 * **It stays on target**: The host always comes from `--remote`. Fuzzy never calls the server named in the spec, and it reports redirects instead of following them.
 * **Ctrl+C loses nothing**: An interrupted run still writes its report, marked as partial. Add `--incremental` and even a killed run leaves its last checkpoint.
@@ -55,11 +58,11 @@ The body matches the schema in every field, so it got past validation and reache
 
 | What | Result |
 |---|---|
-| Speed | 120,000 requests in 17.4 s, about 6,900 req/s |
-| Peak memory | 15 MB, at both 6,000 and 120,000 requests |
+| Speed | 120,000 requests in 20.9 s, about 5,700 req/s |
+| Peak memory | 17 MB, at both 6,000 and 120,000 requests |
 | Requests rejected as invalid (`422`) | 0 of 120,000 |
 | Same seed at `-c 1` and `-c 50` | 600 of 600 inputs identical |
-| Binary size | 9.6 MB |
+| Binary size | 13 MB |
 
 These come from one Linux machine, fuzzing the in-memory `examples/crud` API on localhost with `-c 20 --status 5xx,err`. A real API will set its own pace. Results that pass `--status` stay in memory for the whole run, so a run that keeps every result uses more.
 
@@ -178,7 +181,7 @@ The report says which selectors were used and how many endpoints they left out. 
 
 ### Choosing the Results 🐠
 
-A result is what one call to an endpoint produced: its endpoint, status code, message and input.
+A result is what one call to an endpoint produced: its endpoint, status code, message and input, and how long it took.
 
 `--status` decides which results end up in the report. It takes a comma separated list of exact codes, classes, ranges and `err`, which stands for requests that got no response at all (timeouts, refused connections):
 
@@ -190,27 +193,49 @@ Without `--status`, every result is reported. Filtered results still count in ea
 
 ### Choosing the Report Format 🦜
 
-The report is Markdown by default, which is made to be read. `--format json` writes the same report as JSON, for scripts and CI:
+The extension of `-o` picks the format, and without `-o` the report is `fuzzy-report.md`:
+
+| Extension | Format | Made for |
+|---|---|---|
+| `.md`, `.markdown` | `markdown` | Reading, and rendering on a code host |
+| `.html`, `.htm` | `html` | Reading in a browser: one page with nothing to download |
+| `.txt` | `txt` | Reading in a terminal |
+| `.json` | `json` | Scripts and CI |
+| `.xml` | `xml` | Scripts and CI, in tools that expect XML |
+| `.csv` | `csv` | Spreadsheets: the results as a table |
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json -o report.html
+```
+
+`--format` beats the extension, for any path: `--format json -o results.out` writes JSON. With `--format` and no `-o`, the file name follows the format, like `fuzzy-report.json`. An extension that isn't listed, or none at all, gets Markdown. A script that used `-o report.json` or `-o report.txt` without `--format` used to get Markdown in that file, so add `--format markdown` to keep it.
+
+For scripts and CI, JSON is the usual choice:
 
 ```bash
 ./fuzzy --remote http://localhost:8080 --spec api.json --status 5xx,err --format json
 jq -r '.endpoints[].results.items[] | select(.status >= 500) | "\(.status) \(.endpoint)"' fuzzy-report.json
 ```
 
-The default file name follows the format: `fuzzy-report.md` or `fuzzy-report.json`. `-o` writes to any path you choose, and its extension doesn't change the format, which only `--format` decides.
-
 The report is written once, when the run ends. With `--incremental`, it's also saved at 10 evenly spaced checkpoints during the run, so you can open it while Fuzzy works and a killed run keeps its last checkpoint. Each save replaces the file in one step, so you never read a half-written report. Until the final save the report is marked as partial (`interrupted` is `true` in JSON), and CI should only trust a report once Fuzzy has exited. The file stays empty until the first checkpoint, and a run of fewer than 11 requests has fewer checkpoints. A pipe, a device such as `/dev/stdout`, or a file in a read-only directory can't be replaced, so it only gets the final report.
 
-Both formats have the same structure and the same information:
+Every format but CSV has the same structure and the same information. XML uses the element names of the JSON keys, inside a `<report>` root:
 
-| Markdown | JSON |
+| Markdown, HTML, text | JSON, XML |
 |---|---|
 | Warning about a partial run | `interrupted` |
-| Overview table | `overview` |
+| Overview | `overview` |
 | Summary | `summary` |
 | A section for each endpoint, with its parameters and results | `endpoints`, each with its `parameters` and `results` |
 | Skipped endpoints | `skipped` |
 | Warnings | `warnings` |
+
+CSV exports only the results, with one row for each reported result, since the overview and the totals don't fit in a table of results. So an endpoint with nothing reported has no row, and `--status` matters more here. `seed` and `interrupted` repeat on every row, so a row can be reproduced, and a partial run recognized, after it's imported somewhere else:
+
+```csv
+operation,endpoint,status,message,input,durationMs,seed,interrupted
+GET /user/{id},GET /v1/user/427,500,"{""error"":""db timeout""}","{""path"":{""id"":427}}",12.345,42,false
+```
 
 <details>
 <summary>Full JSON example</summary>
@@ -237,7 +262,13 @@ Both formats have the same structure and the same information:
     "resultsReported": 18
   },
   "summary": [
-    { "endpoint": "GET /user/{id}", "sent": 100, "reported": 18, "statusCodes": { "404": 82, "500": 17, "ERR": 1 } }
+    {
+      "endpoint": "GET /user/{id}",
+      "sent": 100,
+      "reported": 18,
+      "statusCodes": { "404": 82, "500": 17, "ERR": 1 },
+      "responseTimeMs": { "count": 99, "min": 1.2, "mean": 8.1, "p50": 6.5, "p95": 21.9, "p99": 39.9, "max": 41.7 }
+    }
   ],
   "endpoints": [
     {
@@ -254,9 +285,10 @@ Both formats have the same structure and the same information:
         "reported": 18,
         "filter": "5xx,err",
         "statusCodes": { "404": 82, "500": 17, "ERR": 1 },
+        "responseTimeMs": { "count": 99, "min": 1.2, "mean": 8.1, "p50": 6.5, "p95": 21.9, "p99": 39.9, "max": 41.7 },
         "items": [
-          { "endpoint": "GET /v1/user/427", "status": 500, "message": "{\"error\":\"db timeout\"}", "input": "{\"path\":{\"id\":427}}" },
-          { "endpoint": "GET /v1/user/98", "status": null, "message": "context deadline exceeded", "input": "{\"path\":{\"id\":98}}" }
+          { "endpoint": "GET /v1/user/427", "status": 500, "message": "{\"error\":\"db timeout\"}", "input": "{\"path\":{\"id\":427}}", "durationMs": 12.345 },
+          { "endpoint": "GET /v1/user/98", "status": null, "message": "context deadline exceeded", "input": "{\"path\":{\"id\":98}}", "durationMs": 10000.2 }
         ]
       }
     }
@@ -270,13 +302,41 @@ Both formats have the same structure and the same information:
 
 A few values are written differently, to suit the format:
 
-- **`status`**: A number, or `null` when the request got no response. Markdown shows that case as `ERR`, and `statusCodes` counts it under the `ERR` key.
-- **`seed`**: A string, because seeds use 64 bits and many JSON tools would round such a large number, and a rounded seed doesn't reproduce the run.
+- **`status`**: A number, or `null` in JSON when the request got no response. Every other format shows that case as `ERR`, and `statusCodes` counts it under the `ERR` key.
+- **`seed`**: A string in JSON, because seeds use 64 bits and many JSON tools would round such a large number, and a rounded seed doesn't reproduce the run.
 - **`selection`**: Always there in JSON and XML. Markdown, text and HTML only show it when a run used `--include` or `--exclude`. CSV has no overview, so it doesn't show it.
-- **Empty values**: Every key is always there. An empty list is `[]`, and text that doesn't apply is `""`, like `dictionary` when values are only random.
-- **Text from the server**: Markdown neutralizes markup and control characters so a response can't break the document. JSON keeps what the server really sent, so treat `message` as untrusted if you display it.
+- **Empty values**: In JSON and XML, every key is always there. An empty list is `[]` or an empty element, and text that doesn't apply is empty, like `dictionary` when values are only random.
+- **Text from the server**: Markdown, HTML and text neutralize markup and control characters so a response can't break the document or a terminal, and the HTML page also forbids scripts. JSON and XML keep what the server really sent, apart from characters XML can't hold, so treat `message` as untrusted if you display it. CSV keeps it too, but puts a `'` before a cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, because a spreadsheet would run it as a formula.
 
-In both formats, `input` is a JSON object written as a string. It holds the generated values by where they went: `path`, `query`, `header` and `cookie` map names to values, and `body` holds the body. Keys appear only when the request used them, so a request with no values has `{}`. To read it with `jq`, use `.input | fromjson`.
+In every format, `input` is a JSON object written as a string. It holds the generated values by where they went: `path`, `query`, `header` and `cookie` map names to values, and `body` holds the body. Keys appear only when the request used them, so a request with no values has `{}`. To read it with `jq`, use `.input | fromjson`.
+
+### Response Times 🐎
+
+Each endpoint reports the minimum, mean, `p50`, `p95`, `p99` and maximum of its response times, and each reported result its own, all in milliseconds:
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json --status 5xx,err --format json
+jq -r '.summary[] | select(.responseTimeMs.p95 > 500) | .endpoint' fuzzy-report.json   # the slow endpoints
+```
+
+A time goes from sending the request to reading the response, up to 1 MiB of its body. Generating the values isn't included. The statistics cover every response, whatever `--status` keeps, but not requests without a response: those would measure `--timeout`, not the API. A result without a response still shows how long it took to fail. Percentiles are accurate to about 6%, because Fuzzy keeps a small histogram per endpoint instead of every time, so memory doesn't grow with `-n`. The minimum, mean and maximum are exact. With a high `-c` on one machine the times include Fuzzy's own load, so compare them between runs rather than trusting them to the millisecond.
+
+### Keeping a Log 🦫
+
+`--log` writes what happened during the run to a file, in order, with one line for each request, whatever `--status` leaves out of the report:
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json --status 5xx,err --log run.log
+```
+
+```
+time=2026-01-02T03:04:05.712+01:00 level=INFO msg="run started" target=http://localhost:8080 spec=api.json seed=42 endpoints=6 requests=100 concurrency=20 timeout=10s
+time=2026-01-02T03:04:05.734+01:00 level=INFO msg=request endpoint="GET /v1/user/12" status=404 duration=1.2ms message="Not Found" input="{\"path\":{\"id\":12}}"
+time=2026-01-02T03:04:05.735+01:00 level=ERROR msg=request endpoint="GET /v1/user/427" status=500 duration=12.3ms message="{\"error\":\"db timeout\"}" input="{\"path\":{\"id\":427}}"
+time=2026-01-02T03:04:06.018+01:00 level=INFO msg="run finished" sent=600 failed=0 interrupted=false duration=305ms report=/home/you/fuzzy/fuzzy-report.md
+```
+
+It's plain text in the `key=value` format that `grep` and log tools read, whatever the file's extension. `level=ERROR` marks server errors and requests without a response (`status=ERR`), and `level=WARN` marks skipped endpoints and warnings about the spec. A new run appends to the file, so the log keeps the history. Each line is written straight away, so a killed run keeps its log up to the end. Values are quoted, so a response can't forge a line. Headers aren't logged, so neither are the credentials you pass with `-H`, but inputs are. A log failure, such as a full disk, is reported as a warning at the end and doesn't fail the run. A log takes about 370 bytes per request, and it keeps memory low: `--status 5xx,err --log run.log` holds every request on disk instead of in memory.
 
 ### Choosing the Values 🦊
 
@@ -417,8 +477,8 @@ Every flag has a short name with two dashes and a long name with one, as `--help
 | `--n`, `-requests` | Requests per endpoint (default 100, or the dictionary size if larger) | `-n 500` |
 | `--c`, `-concurrency` | Concurrent workers (default 20) | `-c 50` |
 | `--tmo`, `-timeout` | Timeout of each request (default 10s) | `--timeout 2s` |
-| `--o`, `-output` | Report path (default `fuzzy-report.md`, or `fuzzy-report.json` with `--format json`) | `-o report.md` |
-| `--fmt`, `-format` | Report format, `markdown` or `json` (default `markdown`) | `--format json` |
+| `--o`, `-output` | Report path; its extension picks the format (default `fuzzy-report` with the format's extension) | `-o report.html` |
+| `--fmt`, `-format` | Report format: `markdown`, `json`, `txt`, `csv`, `xml` or `html` (default from the `-o` extension, else `markdown`) | `--format json` |
 | `--inc`, `-incremental` | Also save the report 10 times during the run (default only at the end) | `--incremental` |
 | `--log`, `-log` | Append a line for every request to this file (default no log) | `--log run.log` |
 | `--H`, `-header` | Header for every request, repeatable; overrides generated ones | `-H "Authorization: Bearer abc"` |
@@ -442,17 +502,20 @@ Older spellings still work, so existing scripts don't need to change: `-remote` 
 - **Fuzzy Means It**: Every operation in the spec gets called unless you [leave it out](#choosing-the-endpoints-), `DELETE` and `PUT` included, with values that are valid on purpose. Against a real system this really changes or deletes data, so point it at a disposable environment.
 - **Authentication**: Security schemes in the spec are not handled automatically. Pass your credentials with `-H`.
 - **Redirects**: They are reported as results and not followed, so a `302` shows up as a `302`, and a redirect can never take Fuzzy away from the target.
-- **Response Bodies**: The message of a result is the start of the response body (200 characters at most), or the standard status text if the body is empty.
+- **Response Bodies**: The message of a result is the start of the response body (200 characters at most), or the standard status text if the body is empty. For XML and HTML, as said by `Content-Type` or by the body when that's missing, it's the text instead of the markup: `name: text` pairs for XML, attributes included, and the words of the page for HTML, skipping scripts and styles. Fuzzy looks at the first 16 KiB of these, and a body it can't get any text from is shown as it came. Entities in a document type are never expanded.
+- **XML Bodies**: These follow the `xml` keyword of the schema: `name`, `namespace`, `prefix`, `attribute` and `wrapped`. Without a `name`, the root is named after the schema's component, or `root` for an inline schema, and an array repeats its items unless it's `wrapped`. Properties keep the spec's order, because XML services often enforce one. A name that isn't valid in XML, for example from `additionalProperties`, has its invalid characters replaced by `_`. An operation offering another media type uses that one, so XML is only the choice when nothing else is available. The report's `input` shows the values as JSON, not the XML that was sent.
+- **SOAP**: A body gets an envelope when its media type is `application/soap+xml` (SOAP 1.2), or `text/xml` on an operation with a `SOAPAction` header parameter (SOAP 1.1). A schema whose root is already named `Envelope` is sent as it is. If your spec doesn't declare `SOAPAction`, model the envelope in the schema and pass the header with `-H`.
 - **Dictionary Coverage**: Values take turns, so with enough requests each one gets used. On an optional parameter, which is only sent about half the time, some can be missed: raise `-n` if you need them all.
 - **Enums**: Values come only from the list, ahead of the dictionary and random values. With `nullable: true`, `null` is sent only if the list includes it.
 - **Schemas Without a Type**: Fuzzy infers it from the other keywords: `properties` or `required` mean `object`, `items` or `minItems` mean `array`, `format: int64` means `integer`, `minimum` means `number`. With no hint at all, it uses `string`.
-- **Null Values**: `null` is only sent in JSON and multipart bodies, where a multipart `null` is a part with `Content-Type: application/json`. Parameters, form bodies, text bodies and binary bodies can't represent it, so they always get a real value.
+- **Null Values**: `null` is only sent in JSON and multipart bodies, where a multipart `null` is a part with `Content-Type: application/json`. Parameters, form bodies, text bodies, binary bodies and XML bodies can't represent it, so they always get a real value.
 - **Spec Format**: Only OpenAPI 3.0.x in JSON. Swagger 2.0, OpenAPI 3.1 and YAML are refused with an error, and so are `$ref`s that point outside the document.
 - **Progress and Exit Codes**: In a terminal, a status bar on stderr updates in place during the run and disappears when it ends. It drops details such as the speed when the terminal is narrow. Above it, the endpoints change color: red when not tested yet, yellow while sending requests, white once all of them are sent. The list stays on screen after the run; if it doesn't fit, the endpoints still in progress come first and the last line counts the rest. With `NO_COLOR` set or on Windows there is only the bar. When stderr is redirected, or with `TERM=dumb`, Fuzzy prints a plain `[+] 1200/6000 requests` line every 5 seconds instead. The `5xx` and `err` counters cover every request, whatever `--status` keeps for the report. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
 
 ### Known Limitations 🐙
 
-- **XML Bodies**: An operation whose required body is only available as XML is skipped and listed in the report. If the body is optional, the operation is called without it.
+- **Other Media Types**: An operation whose required body is only available in a media type Fuzzy can't build, such as `application/protobuf`, is skipped and listed in the report. If the body is optional, the operation is called without it.
+- **XML Schemas and WSDL**: Fuzzy only reads the OpenAPI spec, so a rule that only an XSD or a WSDL states isn't known to it, and an `xsi:nil` value is never sent.
 - **Overlapping `oneOf`**: When branches overlap in the spec itself (`{}` can match two of them), a value can match more than one. Branches that differ by their `required` fields are told apart.
 - **Unsupported Keywords and Patterns**: `not` and discriminators inherited through `allOf` are ignored. Patterns must use Go regular expression syntax, so one with a lookahead is ignored and listed under the report's warnings.
 - **Formats and Lengths**: Values generated for a `format` such as `email` or `uuid` follow the format, not `maxLength` or `--string-max`.
@@ -497,7 +560,8 @@ fuzzy/
     ├── generator/       # Turns schemas into valid values, dictionary included
     ├── fuzzer/          # Encodes requests, runs the worker pool, filters statuses
     ├── progress/        # Shows a run's progress: status bar or plain lines
-    └── report/          # Writes the Markdown or JSON report
+    ├── runlog/          # Writes the log file of a run
+    └── report/          # Writes the report in each format
 ```
 
 ---
@@ -531,16 +595,10 @@ Guidelines:
 
 - 🔴 Add stateful testing: chain requests and reuse values from responses, such as created IDs, so calls like `GET /users/{id}` reach the code behind the "not found" check
 - 🔴 Add support for certificates
-- 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension
-- 🟠 Add support for more response formats (e.g., XML, HTML)
 - 🟡 Add support for more authentication methods (e.g., OAuth, API keys)
-- 🟡 Implement result export to CSV
-- 🟢 Add support for XML body for SOAP APIs
-- 🟢 Add file logger
 
 ### To-Do Improvement List 🐍
 
-- 🟠 Include response time measurements
 - 🟠 Generalize and modularize code for easier extension
 - 🟠 Implement request rate limiting
 - 🔵 Calculate and optimize code complexity

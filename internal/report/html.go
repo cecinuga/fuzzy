@@ -1,35 +1,162 @@
 package report
 
 import (
-	"html/template"
+	"fmt"
+	"html"
 	"io"
-	"sync"
+	"strconv"
+	"strings"
 
 	"fuzzy/internal/fuzzer"
 )
 
-// writeHTML renders the document as one self-contained page. html/template escapes
-// everything by context, and the page's policy allows no scripts, images or
-// requests at all, so a hostile response stays text even if a browser disagrees.
+// writeHTML renders the document as one self-contained page, built by hand like
+// the other formats: html/template would make the linker keep every method of
+// every package, which costs each run 3 MB of binary and 2 MB of memory, HTML
+// report or not.
+//
+// Everything from the remote or the spec passes through htmlText, and only into
+// element content. The page's policy also allows no scripts, images or requests at
+// all, so a hostile response stays text even if a browser disagrees.
 func writeHTML(w io.Writer, doc document) error {
-	return htmlReport().Execute(w, doc)
+	var b strings.Builder
+
+	b.WriteString(htmlHead)
+	if doc.Interrupted {
+		b.WriteString("<p class=\"partial\">The run was interrupted or is still going: these results are partial.</p>\n")
+	}
+	writeHTMLOverview(&b, doc.Overview)
+
+	b.WriteString("<h2>Summary</h2>\n")
+	htmlTableStart(&b, "Endpoint", "Sent", "Reported", "Status codes", "Response time")
+	for _, row := range doc.Summary {
+		htmlRow(&b, htmlText(row.Endpoint), strconv.Itoa(row.Sent), strconv.Itoa(row.Reported), countsLine(row.StatusCodes), row.ResponseTime.short())
+	}
+	b.WriteString(htmlTableEnd)
+
+	for i := range doc.Endpoints {
+		writeHTMLEndpoint(&b, &doc.Endpoints[i])
+	}
+	if len(doc.Skipped) > 0 {
+		b.WriteString("<h2>Skipped endpoints</h2>\n")
+		htmlTableStart(&b, "Endpoint", "Reason")
+		for _, s := range doc.Skipped {
+			htmlRow(&b, htmlText(s.Endpoint), htmlText(s.Reason))
+		}
+		b.WriteString(htmlTableEnd)
+	}
+	if len(doc.Warnings) > 0 {
+		b.WriteString("<h2>Warnings</h2>\n<ul>\n")
+		for _, warning := range doc.Warnings {
+			fmt.Fprintf(&b, "<li>%s</li>\n", htmlText(warning))
+		}
+		b.WriteString("</ul>\n")
+	}
+	b.WriteString("</body>\n</html>\n")
+
+	_, err := io.WriteString(w, b.String())
+	return err
 }
 
-// htmlReport parses the page on first use: most runs never write HTML, and parsing
-// it costs a run more memory than all of its requests.
-var htmlReport = sync.OnceValue(func() *template.Template {
-	return template.Must(template.New("report").Funcs(template.FuncMap{
-		"clean":        oneLine,
-		"counts":       countsLine,
-		"status":       func(s statusCode) string { return statusLabel(int(s)) },
-		"statusClass":  statusClass,
-		"milliseconds": millisText,
-		"yesNo":        yesNo,
-		"bounds":       randomBounds.lines,
-		"timeText":     responseTime.text,
-		"timeShort":    responseTime.short,
-	}).Parse(htmlPage))
-})
+func writeHTMLOverview(b *strings.Builder, o overview) {
+	dictionary := o.Dictionary
+	if dictionary == "" {
+		dictionary = "none (random values)"
+	}
+	b.WriteString("<div class=\"scroll\"><table>\n")
+	htmlField(b, "Target", htmlText(o.Target))
+	htmlField(b, "Spec", htmlText(fmt.Sprintf("%s (%s %s)", o.Spec.Path, o.Spec.Title, o.Spec.Version)))
+	htmlField(b, "Dictionary", htmlText(dictionary))
+	htmlField(b, "Random bounds", htmlLines(o.Bounds.lines()))
+	htmlField(b, "Charset", htmlText(o.Charset))
+	htmlField(b, "Status filter", htmlText(o.Filter))
+	if s := o.Selection; len(s.Include)+len(s.Exclude) > 0 {
+		if len(s.Include) > 0 {
+			htmlField(b, "Included", htmlLines(s.Include))
+		}
+		if len(s.Exclude) > 0 {
+			htmlField(b, "Excluded", htmlLines(s.Exclude))
+		}
+		htmlField(b, "Endpoints left out", strconv.Itoa(s.LeftOut))
+	}
+	htmlField(b, "Seed", strconv.FormatUint(o.Seed, 10))
+	htmlField(b, "Started", htmlText(o.Started))
+	htmlField(b, "Duration", htmlText(o.Duration))
+	htmlField(b, "Requests sent", strconv.Itoa(o.RequestsSent))
+	htmlField(b, "Results reported", strconv.Itoa(o.ResultsReported))
+	b.WriteString(htmlTableEnd)
+}
+
+func writeHTMLEndpoint(b *strings.Builder, e *endpoint) {
+	fmt.Fprintf(b, "<section>\n<h2>%s %s</h2>\n", htmlText(e.Method), htmlText(e.Path))
+	if e.Summary != "" {
+		fmt.Fprintf(b, "<p>%s</p>\n", htmlText(e.Summary))
+	}
+	fmt.Fprintf(b, "<ul>\n<li><strong>HTTP verb:</strong> %s</li>\n<li><strong>Path:</strong> %s</li>\n", htmlText(e.Method), htmlText(e.FullPath))
+	if e.OperationID != "" {
+		fmt.Fprintf(b, "<li><strong>Operation ID:</strong> %s</li>\n", htmlText(e.OperationID))
+	}
+	b.WriteString("</ul>\n<h3>Parameters</h3>\n")
+	if len(e.Parameters) == 0 {
+		b.WriteString("<p>None.</p>\n")
+	} else {
+		htmlTableStart(b, "Name", "In", "Type", "Required", "Constraints")
+		for _, p := range e.Parameters {
+			htmlRow(b, htmlText(p.Name), htmlText(p.In), htmlText(p.Type), yesNo(p.Required), htmlText(p.Constraints))
+		}
+		b.WriteString(htmlTableEnd)
+	}
+
+	res := &e.Results
+	fmt.Fprintf(b, "<h3>Results</h3>\n<p>%d sent, %d reported (filter: %s). Status codes: %s.</p>\n<p>Response time: %s.</p>\n",
+		res.Sent, res.Reported, htmlText(res.Filter), countsLine(res.StatusCodes), res.ResponseTime.text())
+	if len(res.Items) > 0 {
+		htmlTableStart(b, "Endpoint", "Status", "Message", "Input", "Time")
+		for _, item := range res.Items {
+			fmt.Fprintf(b, "<tr><td>%s</td><td class=\"%s\">%s</td><td>%s</td><td><code>%s</code></td><td>%s</td></tr>\n",
+				htmlText(item.Endpoint), statusClass(item.Status), statusLabel(int(item.Status)),
+				htmlText(item.Message), htmlText(item.Input), millisText(item.DurationMs))
+		}
+		b.WriteString(htmlTableEnd)
+	}
+	b.WriteString("</section>\n")
+}
+
+// htmlText makes untrusted text safe as element content.
+func htmlText(s string) string {
+	return html.EscapeString(oneLine(s))
+}
+
+func htmlLines(lines []string) string {
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString(htmlText(line))
+		b.WriteString("<br>")
+	}
+	return b.String()
+}
+
+func htmlField(b *strings.Builder, name, safeValue string) {
+	fmt.Fprintf(b, "<tr><th>%s</th><td>%s</td></tr>\n", name, safeValue)
+}
+
+func htmlTableStart(b *strings.Builder, headings ...string) {
+	b.WriteString("<div class=\"scroll\"><table>\n<tr>")
+	for _, heading := range headings {
+		fmt.Fprintf(b, "<th>%s</th>", heading)
+	}
+	b.WriteString("</tr>\n")
+}
+
+func htmlRow(b *strings.Builder, safeCells ...string) {
+	b.WriteString("<tr>")
+	for _, cell := range safeCells {
+		fmt.Fprintf(b, "<td>%s</td>", cell)
+	}
+	b.WriteString("</tr>\n")
+}
+
+const htmlTableEnd = "</table></div>\n"
 
 // statusClass returns the style of a result's status. It is a fixed name, never
 // text from the response.
@@ -45,7 +172,7 @@ func statusClass(s statusCode) string {
 	return "success"
 }
 
-const htmlPage = `<!doctype html>
+const htmlHead = `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -70,96 +197,4 @@ code { font-family: ui-monospace, monospace; font-size: 13px; }
 </head>
 <body>
 <h1>Fuzzy report</h1>
-{{- if .Interrupted}}
-<p class="partial">The run was interrupted or is still going: these results are partial.</p>
-{{- end}}
-{{- with .Overview}}
-<div class="scroll"><table>
-<tr><th>Target</th><td>{{clean .Target}}</td></tr>
-<tr><th>Spec</th><td>{{clean .Spec.Path}} ({{clean .Spec.Title}} {{clean .Spec.Version}})</td></tr>
-<tr><th>Dictionary</th><td>{{if .Dictionary}}{{clean .Dictionary}}{{else}}none (random values){{end}}</td></tr>
-<tr><th>Random bounds</th><td>{{range bounds .Bounds}}{{.}}<br>{{end}}</td></tr>
-<tr><th>Charset</th><td>{{clean .Charset}}</td></tr>
-<tr><th>Status filter</th><td>{{clean .Filter}}</td></tr>
-<tr><th>Seed</th><td>{{.Seed}}</td></tr>
-<tr><th>Started</th><td>{{.Started}}</td></tr>
-<tr><th>Duration</th><td>{{.Duration}}</td></tr>
-<tr><th>Requests sent</th><td>{{.RequestsSent}}</td></tr>
-<tr><th>Results reported</th><td>{{.ResultsReported}}</td></tr>
-{{- if or .Selection.Include .Selection.Exclude}}
-{{- with .Selection.Include}}
-<tr><th>Included</th><td>{{range .}}{{clean .}}<br>{{end}}</td></tr>
-{{- end}}
-{{- with .Selection.Exclude}}
-<tr><th>Excluded</th><td>{{range .}}{{clean .}}<br>{{end}}</td></tr>
-{{- end}}
-<tr><th>Endpoints left out</th><td>{{.Selection.LeftOut}}</td></tr>
-{{- end}}
-</table></div>
-{{- end}}
-<h2>Summary</h2>
-<div class="scroll"><table>
-<tr><th>Endpoint</th><th>Sent</th><th>Reported</th><th>Status codes</th><th>Response time</th></tr>
-{{- range .Summary}}
-<tr><td>{{clean .Endpoint}}</td><td>{{.Sent}}</td><td>{{.Reported}}</td><td>{{counts .StatusCodes}}</td><td>{{timeShort .ResponseTime}}</td></tr>
-{{- end}}
-</table></div>
-{{- range .Endpoints}}
-<section>
-<h2>{{clean .Method}} {{clean .Path}}</h2>
-{{- if .Summary}}
-<p>{{clean .Summary}}</p>
-{{- end}}
-<ul>
-<li><strong>HTTP verb:</strong> {{clean .Method}}</li>
-<li><strong>Path:</strong> {{clean .FullPath}}</li>
-{{- if .OperationID}}
-<li><strong>Operation ID:</strong> {{clean .OperationID}}</li>
-{{- end}}
-</ul>
-<h3>Parameters</h3>
-{{- if .Parameters}}
-<div class="scroll"><table>
-<tr><th>Name</th><th>In</th><th>Type</th><th>Required</th><th>Constraints</th></tr>
-{{- range .Parameters}}
-<tr><td>{{clean .Name}}</td><td>{{clean .In}}</td><td>{{clean .Type}}</td><td>{{yesNo .Required}}</td><td>{{clean .Constraints}}</td></tr>
-{{- end}}
-</table></div>
-{{- else}}
-<p>None.</p>
-{{- end}}
-<h3>Results</h3>
-{{- with .Results}}
-<p>{{.Sent}} sent, {{.Reported}} reported (filter: {{clean .Filter}}). Status codes: {{counts .StatusCodes}}.</p>
-<p>Response time: {{timeText .ResponseTime}}.</p>
-{{- if .Items}}
-<div class="scroll"><table>
-<tr><th>Endpoint</th><th>Status</th><th>Message</th><th>Input</th><th>Time</th></tr>
-{{- range .Items}}
-<tr><td>{{clean .Endpoint}}</td><td class="{{statusClass .Status}}">{{status .Status}}</td><td>{{clean .Message}}</td><td><code>{{clean .Input}}</code></td><td>{{milliseconds .DurationMs}}</td></tr>
-{{- end}}
-</table></div>
-{{- end}}
-{{- end}}
-</section>
-{{- end}}
-{{- if .Skipped}}
-<h2>Skipped endpoints</h2>
-<div class="scroll"><table>
-<tr><th>Endpoint</th><th>Reason</th></tr>
-{{- range .Skipped}}
-<tr><td>{{clean .Endpoint}}</td><td>{{clean .Reason}}</td></tr>
-{{- end}}
-</table></div>
-{{- end}}
-{{- if .Warnings}}
-<h2>Warnings</h2>
-<ul>
-{{- range .Warnings}}
-<li>{{clean .}}</li>
-{{- end}}
-</ul>
-{{- end}}
-</body>
-</html>
 `

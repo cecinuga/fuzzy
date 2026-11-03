@@ -2,5 +2,9 @@
 /main
 /fuzzy-report.md
 /fuzzy-report.json
+/fuzzy-report.txt
+/fuzzy-report.csv
+/fuzzy-report.xml
+/fuzzy-report.html
 .venv
 prompt.txt
