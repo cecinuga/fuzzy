@@ -65,6 +65,7 @@ type PathItem struct {
 type Operation struct {
 	OperationID string       `json:"operationId"`
 	Summary     string       `json:"summary"`
+	Tags        []string     `json:"tags"`
 	Parameters  []*Parameter `json:"parameters"`
 	RequestBody *RequestBody `json:"requestBody"`
 	Servers     []Server     `json:"servers"`

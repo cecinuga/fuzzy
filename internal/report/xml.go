@@ -109,6 +109,15 @@ func (x *xmlWriter) overview(o overview) {
 		})
 		x.text("charset", o.Charset)
 		x.text("statusFilter", o.Filter)
+		x.group("selection", func() {
+			for _, selector := range o.Selection.Include {
+				x.text("include", selector)
+			}
+			for _, selector := range o.Selection.Exclude {
+				x.text("exclude", selector)
+			}
+			x.number("endpointsLeftOut", o.Selection.LeftOut)
+		})
 		x.text("seed", strconv.FormatUint(o.Seed, 10))
 		x.text("started", o.Started)
 		x.text("duration", o.Duration)

@@ -38,6 +38,15 @@ func writeText(w io.Writer, doc document) error {
 	} {
 		fmt.Fprintf(&b, "%-17s %s\n", row[0]+":", row[1])
 	}
+	if s := o.Selection; len(s.Include)+len(s.Exclude) > 0 {
+		if len(s.Include) > 0 {
+			fmt.Fprintf(&b, "%-17s %s\n", "Included:", oneLine(strings.Join(s.Include, "; ")))
+		}
+		if len(s.Exclude) > 0 {
+			fmt.Fprintf(&b, "%-17s %s\n", "Excluded:", oneLine(strings.Join(s.Exclude, "; ")))
+		}
+		fmt.Fprintf(&b, "%-17s %d\n", "Left out:", s.LeftOut)
+	}
 
 	textHeading(&b, "Summary")
 	for _, row := range doc.Summary {

@@ -83,6 +83,8 @@ type Report struct {
 	Spec        string
 	Dictionary  string
 	Filter      fuzzer.StatusFilter
+	Selection   fuzzer.Selection
+	LeftOut     int // endpoints of the spec the selection left out
 	Bounds      generator.Bounds
 	Seed        uint64
 	Started     time.Time
@@ -176,6 +178,16 @@ func writeOverview(b *strings.Builder, o overview) {
 		{"Results reported", strconv.Itoa(o.ResultsReported)},
 	} {
 		fmt.Fprintf(b, "| **%s** | %s |\n", row[0], row[1])
+	}
+	// Only with a selection, so a run of the whole spec reads as it always did.
+	if s := o.Selection; len(s.Include)+len(s.Exclude) > 0 {
+		if len(s.Include) > 0 {
+			fmt.Fprintf(b, "| **Included** | %s |\n", cellList(s.Include))
+		}
+		if len(s.Exclude) > 0 {
+			fmt.Fprintf(b, "| **Excluded** | %s |\n", cellList(s.Exclude))
+		}
+		fmt.Fprintf(b, "| **Endpoints left out** | %d |\n", s.LeftOut)
 	}
 	b.WriteString("\n")
 }

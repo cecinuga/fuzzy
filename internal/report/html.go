@@ -86,6 +86,15 @@ code { font-family: ui-monospace, monospace; font-size: 13px; }
 <tr><th>Duration</th><td>{{.Duration}}</td></tr>
 <tr><th>Requests sent</th><td>{{.RequestsSent}}</td></tr>
 <tr><th>Results reported</th><td>{{.ResultsReported}}</td></tr>
+{{- if or .Selection.Include .Selection.Exclude}}
+{{- with .Selection.Include}}
+<tr><th>Included</th><td>{{range .}}{{clean .}}<br>{{end}}</td></tr>
+{{- end}}
+{{- with .Selection.Exclude}}
+<tr><th>Excluded</th><td>{{range .}}{{clean .}}<br>{{end}}</td></tr>
+{{- end}}
+<tr><th>Endpoints left out</th><td>{{.Selection.LeftOut}}</td></tr>
+{{- end}}
 </table></div>
 {{- end}}
 <h2>Summary</h2>

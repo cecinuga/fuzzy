@@ -286,9 +286,11 @@ func newWorker(client *http.Client, opts Options) *worker {
 
 // call performs one job. The random stream derives only from the seed and the
 // job, never from scheduling, so a seed reproduces the same inputs at any
-// concurrency. ok is false when the call was abandoned because of cancellation.
+// concurrency. It goes by the target's own index rather than the job's, so an
+// endpoint gets the same inputs whichever others a Selection leaves out. ok is
+// false when the call was abandoned because of cancellation.
 func (w *worker) call(ctx context.Context, t *Target, j job) (Result, bool) {
-	w.pcg.Seed(w.opts.Seed, mix(uint64(j.target)<<32|uint64(j.iter)))
+	w.pcg.Seed(w.opts.Seed, mix(uint64(t.index)<<32|uint64(j.iter)))
 
 	req, input, err := t.build(ctx, w.rng, j.iter)
 	result := Result{Endpoint: t.Op.Method + " " + t.Op.Path, Input: input, iter: j.iter}

@@ -39,6 +39,7 @@ func TestCanonicalArgs(t *testing.T) {
 		"value like a flag": {[]string{"-o", "-remote", "-spec", "s"}, []string{"-o", "-remote", "--spec", "s"}},
 		"bool takes none":   {[]string{"-k", "-remote", "x"}, []string{"-k", "--remote", "x"}},
 		"short name":        {[]string{"--rem", "x", "--sta=5xx", "--inc", "--spc", "s"}, []string{"--rem", "x", "--sta=5xx", "--inc", "--spc", "s"}},
+		"selection":         {[]string{"-include", "GET", "-exclude=/a", "-list", "-spec", "s"}, []string{"--include", "GET", "--exclude=/a", "--list", "--spec", "s"}},
 		"help":              {[]string{"-help"}, []string{"--help"}},
 		"version":           {[]string{"-version"}, []string{"--version"}},
 		"after terminator":  {[]string{"-k", "--", "-remote"}, []string{"-k", "--", "-remote"}},
@@ -147,6 +148,7 @@ func TestHelpListsEveryFlag(t *testing.T) {
 			"--rem, -remote", "--spc, -spec", "--sta, -status", "--dic, -dict", "--smn, -string-min", "--smx, -string-max", "--imn, -int-min", "--imx, -int-max",
 			"--fmn, -float-min", "--fmx, -float-max", "--chr, -charset", "--n, -requests", "--c, -concurrency", "--tmo, -timeout", "--o, -output", "--fmt, -format",
 			"--inc, -incremental", "--log, -log", "--H, -header", "--k, -insecure", "--sd, -seed", "--h, -help", "--v, -version",
+			"--icl, -include", "--exc, -exclude", "--lst, -list",
 		} {
 			if !strings.Contains(stdout, flag) {
 				t.Errorf("%v: help lacks %s", args, flag)

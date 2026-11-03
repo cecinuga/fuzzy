@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"fuzzy/internal/config"
@@ -33,8 +35,20 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 
 	gen := generator.New(cfg.Bounds, dict, cfg.Seed)
 	targets, skipped := fuzzer.Compile(doc, gen, cfg.Remote)
+	if targets, skipped, err = cfg.Selection.Apply(targets, skipped); err != nil {
+		return err
+	}
 	if len(targets) == 0 {
+		if cfg.Selection.Active() {
+			return errors.New("--include and --exclude leave no endpoint to fuzz")
+		}
 		return errors.New("no endpoint of the spec can be fuzzed")
+	}
+
+	// Before the log and the report are opened: listing writes no file.
+	if cfg.List {
+		listEndpoints(stdout, stderr, targets, skipped, len(doc.Operations))
+		return nil
 	}
 
 	// Opened up front: a bad path must fail before the fuzzing, not after it. The
@@ -59,7 +73,11 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 		requests = max(config.DefaultRequests, dict.Size())
 	}
 
-	fmt.Fprintf(stdout, "[+] fuzzing %d endpoints of %s, %d requests each (seed %d)\n", len(targets), cfg.Remote, requests, cfg.Seed)
+	count := strconv.Itoa(len(targets))
+	if cfg.Selection.Active() {
+		count = fmt.Sprintf("%d of %d", len(targets), len(doc.Operations))
+	}
+	fmt.Fprintf(stdout, "[+] fuzzing %s endpoints of %s, %d requests each (seed %d)\n", count, cfg.Remote, requests, cfg.Seed)
 
 	log.Info("run started",
 		"target", cfg.Remote.Redacted(), "spec", cfg.SpecPath, "seed", cfg.Seed, "endpoints", len(targets),
@@ -82,6 +100,8 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 				Spec:        cfg.SpecPath,
 				Dictionary:  cfg.DictPath,
 				Filter:      cfg.Filter,
+				Selection:   cfg.Selection,
+				LeftOut:     len(doc.Operations) - len(targets) - len(skipped),
 				Bounds:      cfg.Bounds,
 				Seed:        cfg.Seed,
 				Started:     started,
@@ -152,6 +172,23 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 	}
 	fmt.Fprintf(stdout, "[+] %d requests sent, %d without a response. Report: %s\n", sent, failed, absolutePath(cfg.Output))
 	return nil
+}
+
+// listEndpoints prints the selected endpoints on stdout, one per line, with any
+// tags after a tab: `cut -f1` gives lines that work as selectors. Everything else
+// goes to stderr, to keep stdout usable by scripts.
+func listEndpoints(stdout, stderr io.Writer, targets []*fuzzer.Target, skipped []fuzzer.Skipped, total int) {
+	for _, t := range targets {
+		line := progress.TerminalSafe(t.Op.Method + " " + t.Op.Path)
+		if len(t.Op.Tags) > 0 {
+			line += "\t" + progress.TerminalSafe(strings.Join(t.Op.Tags, ", "))
+		}
+		fmt.Fprintln(stdout, line)
+	}
+	fmt.Fprintf(stderr, "[+] %d of %d endpoints would be fuzzed, no request sent\n", len(targets), total)
+	for _, s := range skipped {
+		fmt.Fprintln(stderr, progress.TerminalSafe(fmt.Sprintf("[!] skipped %s %s: %s", s.Op.Method, s.Op.Path, s.Reason)))
+	}
 }
 
 // absolutePath returns path made absolute, or as given if the working directory

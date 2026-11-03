@@ -34,13 +34,15 @@ const (
 
 // Config is everything a run needs.
 type Config struct {
-	Remote      *url.URL
+	Remote      *url.URL // empty when listing without --remote
 	SpecPath    string
 	DictPath    string
 	Output      string
 	Format      report.Format
 	LogPath     string // empty means no log file
 	Filter      fuzzer.StatusFilter
+	Selection   fuzzer.Selection
+	List        bool // print the selected endpoints instead of fuzzing them
 	Bounds      generator.Bounds
 	Requests    int // 0 means: DefaultRequests, or the dictionary size if larger
 	Concurrency int
@@ -56,6 +58,9 @@ type Flags struct {
 	remote      string
 	spec        string
 	status      string
+	include     []string
+	exclude     []string
+	list        bool
 	dict        string
 	bounds      generator.Bounds
 	requests    int
@@ -79,6 +84,11 @@ func (f *Flags) Register(fs *pflag.FlagSet) {
 	fs.StringVar(&f.remote, "remote", "", "API to fuzz: `url`, FQDN or host:port (required)")
 	fs.StringVar(&f.spec, "spec", "", "OpenAPI 3.0 spec, JSON `file` (required)")
 	fs.StringVar(&f.status, "status", "", "status `codes` in the report, e.g. 200,404,5xx,400-404,err (default all)")
+	// Arrays, not slices: a slice would split selectors such as 'GET,POST /a' on
+	// their commas.
+	fs.StringArrayVar(&f.include, "include", nil, "only fuzz endpoints matching `selector`: GET, GET,POST, /users/*, /users/**, tag:billing or 'GET /user/{id}' (repeatable)")
+	fs.StringArrayVar(&f.exclude, "exclude", nil, "don't fuzz endpoints matching `selector`, even if included (repeatable)")
+	fs.BoolVar(&f.list, "list", false, "print the selected endpoints and exit without sending requests (--remote not needed)")
 	fs.StringVar(&f.dict, "dict", "", "values `file`, one value per line (default random values only)")
 	fs.IntVar(&f.bounds.StringMin, "string-min", d.StringMin, "random string minimum length")
 	fs.IntVar(&f.bounds.StringMax, "string-max", d.StringMax, "random string maximum length")
@@ -100,6 +110,9 @@ func (f *Flags) Register(fs *pflag.FlagSet) {
 	fs.Uint64Var(&f.seed, "seed", 0, "seed to reproduce a run's inputs (default random)")
 }
 
+// Listing reports whether --list was given.
+func (f *Flags) Listing() bool { return f.list }
+
 // Config validates the flag values. Requiring a flag to be set is up to the
 // command, so here an empty value is only an invalid one.
 func (f *Flags) Config() (*Config, error) {
@@ -107,14 +120,23 @@ func (f *Flags) Config() (*Config, error) {
 		return nil, errors.New("--spec must not be empty")
 	}
 
-	target, err := parseRemote(f.remote)
-	if err != nil {
-		return nil, fmt.Errorf("--remote: %w", err)
+	// Listing sends nothing, so it has no use for a target unless one is given.
+	target := &url.URL{}
+	if !f.list || f.remote != "" {
+		var err error
+		if target, err = parseRemote(f.remote); err != nil {
+			return nil, fmt.Errorf("--remote: %w", err)
+		}
 	}
 
 	filter, err := fuzzer.ParseStatusFilter(f.status)
 	if err != nil {
 		return nil, fmt.Errorf("--status: %w", err)
+	}
+
+	selection, err := fuzzer.ParseSelection(f.include, f.exclude)
+	if err != nil {
+		return nil, err
 	}
 
 	format, err := f.reportFormat()
@@ -161,6 +183,8 @@ func (f *Flags) Config() (*Config, error) {
 		Format:      format,
 		LogPath:     f.log,
 		Filter:      filter,
+		Selection:   selection,
+		List:        f.list,
 		Bounds:      f.bounds,
 		Requests:    f.requests,
 		Concurrency: f.concurrency,

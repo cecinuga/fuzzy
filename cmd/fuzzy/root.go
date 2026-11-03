@@ -32,6 +32,10 @@ const examples = `  # Keep only server errors and requests that got no response
   # The report's extension picks its format, and the log keeps every request
   fuzzy -remote http://localhost:8080 -spec api.json -status 5xx,err --o results.csv -log run.log
 
+  # Everything except deletions and one slow path, previewed first
+  fuzzy --spec api.json --exclude DELETE --exclude 'POST /reports/*' --list
+  fuzzy --remote http://localhost:8080 --spec api.json --exclude DELETE --exclude 'POST /reports/*'
+
   # Shell completion, see 'fuzzy completion --help'
   fuzzy completion bash`
 
@@ -56,6 +60,14 @@ func newRootCommand() *cobra.Command {
 		// run reports errors itself, in the [!] format and with the right exit code.
 		SilenceErrors: true,
 		SilenceUsage:  true,
+		// Cobra checks required flags between PreRunE and RunE. Listing sends nothing,
+		// so it doesn't need a target.
+		PreRunE: func(cmd *cobra.Command, _ []string) error {
+			if flags.Listing() {
+				return cmd.Flags().SetAnnotation("remote", cobra.BashCompOneRequiredFlag, []string{"false"})
+			}
+			return nil
+		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := flags.Config()
 			if err != nil {
@@ -81,6 +93,8 @@ func newRootCommand() *cobra.Command {
 		cmd.MarkFlagFilename("spec", "json"),
 		cmd.RegisterFlagCompletionFunc("remote", cobra.NoFileCompletions),
 		cmd.RegisterFlagCompletionFunc("status", cobra.NoFileCompletions),
+		cmd.RegisterFlagCompletionFunc("include", cobra.NoFileCompletions),
+		cmd.RegisterFlagCompletionFunc("exclude", cobra.NoFileCompletions),
 		cmd.RegisterFlagCompletionFunc("format", cobra.FixedCompletions(
 			formatNames(),
 			cobra.ShellCompDirectiveNoFileComp,

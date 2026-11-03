@@ -76,7 +76,7 @@ func writeEndpoints(b *strings.Builder, endpoints []fuzzer.EndpointProgress, slo
 }
 
 func writeEndpoint(b *strings.Builder, e fuzzer.EndpointProgress) {
-	fmt.Fprintf(b, "%s%s%s%s\n", stateColor(e.State), terminalSafe(e.Name), colorReset, clearLine)
+	fmt.Fprintf(b, "%s%s%s%s\n", stateColor(e.State), TerminalSafe(e.Name), colorReset, clearLine)
 }
 
 func stateColor(state fuzzer.EndpointState) string {
@@ -89,9 +89,9 @@ func stateColor(state fuzzer.EndpointState) string {
 	return colorRed
 }
 
-// terminalSafe neutralizes control characters: paths come from the spec, and an
+// TerminalSafe neutralizes control characters: paths come from the spec, and an
 // escape sequence hidden in one must not reach the terminal.
-func terminalSafe(s string) string {
+func TerminalSafe(s string) string {
 	return strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return '?'

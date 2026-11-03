@@ -35,6 +35,7 @@ type overview struct {
 	Bounds     randomBounds `json:"randomBounds"`
 	Charset    string       `json:"charset"`
 	Filter     string       `json:"statusFilter"`
+	Selection  selection    `json:"selection"`
 	// A string in JSON: seeds use all 64 bits, and many JSON readers keep numbers
 	// as doubles, which would round the seed and so fail to reproduce the run.
 	Seed            uint64 `json:"seed,string"`
@@ -65,6 +66,14 @@ func (b bound[T]) text() string {
 // lines renders the bounds of each data type as text, one entry per type.
 func (b randomBounds) lines() []string {
 	return []string{"string: " + b.String.text(), "int: " + b.Int.text(), "float: " + b.Float.text()}
+}
+
+// selection says which endpoints the run was limited to, so that a partial run
+// can't be mistaken for one that covered the whole spec.
+type selection struct {
+	Include []string `json:"include"`
+	Exclude []string `json:"exclude"`
+	LeftOut int      `json:"endpointsLeftOut"`
 }
 
 type specInfo struct {
@@ -245,6 +254,7 @@ func newDocument(r Report) document {
 		},
 		Charset:         string(r.Bounds.Charset),
 		Filter:          r.Filter.String(),
+		Selection:       selection{r.Selection.Include(), r.Selection.Exclude(), r.LeftOut},
 		Seed:            r.Seed,
 		Started:         r.Started.Format(time.RFC3339),
 		Duration:        r.Duration.Round(time.Millisecond).String(),
