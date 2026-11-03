@@ -34,7 +34,7 @@ GET /user/{id}
   id: integer
 ```
 
-Then it calls every endpoint with requests that respect the spec, using values generated at random or taken from your dictionary, and writes what happened to a Markdown report.
+Then it calls every endpoint with requests that respect the spec, using values generated at random or taken from your dictionary, and writes what happened to a Markdown or JSON report.
 
 ---
 
@@ -45,7 +45,7 @@ Then it calls every endpoint with requests that respect the spec, using values g
 * **Everywhere a Value Can Go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text and binary bodies
 * **Flexible Input**: Random values within bounds you choose, or a text file with values to test (one value per line)
 * **Dictionary With a Safety Net**: A dictionary value is only used where the spec allows it; anything it doesn't cover gets a random valid value
-* **Markdown Report**: Each endpoint with its spec and its results, filtered by the status codes you care about
+* **Markdown or JSON Report**: Each endpoint with its spec and its results, filtered by the status codes you care about
 * **Fast and Concurrent**: A bounded worker pool on a shared connection pool, with memory that stays low on big specs
 * **Reproducible**: The same seed produces the same inputs, at any concurrency
 * **Live Status Bar**: A single line that updates in place with the requests sent so far, the speed, the time left and the failures
@@ -102,6 +102,80 @@ A result is what one call to an endpoint produced: its endpoint, status code, me
 ```
 
 Without `--status`, every result is reported. Filtered results still count in each endpoint's totals, so you always see how many requests got each status code.
+
+### Choosing the Report Format 🦜
+
+The report is Markdown by default, which is made to be read. `--format json` writes the same report as JSON, for scripts and CI:
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json --status 5xx,err --format json
+jq -r '.endpoints[].results.items[] | select(.status >= 500) | "\(.status) \(.endpoint)"' fuzzy-report.json
+```
+
+The default file name follows the format: `fuzzy-report.md` or `fuzzy-report.json`. `-o` writes to any path you choose, and its extension doesn't change the format, which only `--format` decides.
+
+Both formats have the same structure and the same information:
+
+| Markdown | JSON |
+|---|---|
+| Warning about a partial run | `interrupted` |
+| Overview table | `overview` |
+| Summary | `summary` |
+| A section for each endpoint, with its parameters and results | `endpoints`, each with its `parameters` and `results` |
+| Skipped endpoints | `skipped` |
+| Warnings | `warnings` |
+
+```json
+{
+  "interrupted": false,
+  "overview": {
+    "target": "http://localhost:8080",
+    "spec": { "path": "api.json", "title": "Demo", "version": "2" },
+    "dictionary": "",
+    "randomBounds": ["string: length 1..10 (unicode)", "int: 0..1000", "float: 0..1000"],
+    "statusFilter": "5xx,err",
+    "seed": "42",
+    "started": "2026-01-02T03:04:05Z",
+    "duration": "1.5s",
+    "requestsSent": 100,
+    "resultsReported": 18
+  },
+  "summary": [
+    { "endpoint": "GET /user/{id}", "sent": 100, "reported": 18, "statusCodes": { "404": 82, "500": 17, "ERR": 1 } }
+  ],
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/user/{id}",
+      "fullPath": "/v1/user/{id}",
+      "summary": "Fetch a user",
+      "operationId": "getUser",
+      "parameters": [
+        { "name": "id", "in": "path", "type": "integer (int32)", "required": true, "constraints": "min 1; max 500" }
+      ],
+      "results": {
+        "sent": 100,
+        "reported": 18,
+        "filter": "5xx,err",
+        "statusCodes": { "404": 82, "500": 17, "ERR": 1 },
+        "items": [
+          { "endpoint": "GET /v1/user/427", "status": 500, "message": "{\"error\":\"db timeout\"}", "input": "id=427" },
+          { "endpoint": "GET /v1/user/98", "status": null, "message": "context deadline exceeded", "input": "id=98" }
+        ]
+      }
+    }
+  ],
+  "skipped": [],
+  "warnings": []
+}
+```
+
+A few values are written differently, to suit the format:
+
+- **`status`**: A number, or `null` when the request got no response. Markdown shows that case as `ERR`, and `statusCodes` counts it under the `ERR` key.
+- **`seed`**: A string, because seeds use 64 bits and many JSON tools would round such a large number, and a rounded seed doesn't reproduce the run.
+- **Empty values**: Every key is always there. An empty list is `[]`, and text that doesn't apply is `""`, like `dictionary` when values are only random.
+- **Text from the server**: Markdown neutralizes markup and control characters so a response can't break the document. JSON keeps what the server really sent, so treat `message` as untrusted if you display it.
 
 ### Choosing the Values 🦊
 
@@ -250,7 +324,7 @@ fuzzy/
 │   ├── generator/       # Turns schemas into valid values, dictionary included
 │   ├── fuzzer/          # Encodes requests, runs the worker pool, filters statuses
 │   ├── progress/        # Shows a run's progress: status bar or plain lines
-│   └── report/          # Writes the Markdown report
+│   └── report/          # Writes the Markdown or JSON report
 └── testdata/
     ├── api.json         # Sample OpenAPI spec
     └── name.txt         # Sample dictionary
@@ -276,7 +350,8 @@ fuzzy/
 | `-n`, `--requests` | Requests per endpoint (default 100, or the dictionary size if larger) | `-n 500` |
 | `-c`, `--concurrency` | Concurrent workers (default 20) | `-c 50` |
 | `--timeout` | Timeout of each request (default 10s) | `--timeout 2s` |
-| `-o`, `--output` | Markdown report path (default `fuzzy-report.md`) | `-o report.md` |
+| `-o`, `--output` | Report path (default `fuzzy-report.md`, or `fuzzy-report.json` with `--format json`) | `-o report.md` |
+| `--format` | Report format, `markdown` or `json` (default `markdown`) | `--format json` |
 | `-H`, `--header` | Header for every request, repeatable; overrides generated ones | `-H "Authorization: Bearer abc"` |
 | `-k`, `--insecure` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |
 | `--seed` | Seed to reproduce a run's inputs (default random, also for `0`; printed in the report) | `--seed 42` |
@@ -289,7 +364,7 @@ fuzzy/
 source <(./fuzzy completion bash)   # also zsh, fish and powershell, see ./fuzzy completion --help
 ```
 
-Completion knows the flag names, the `--charset` values and that `--spec` wants a `.json` file.
+Completion knows the flag names, the `--charset` and `--format` values and that `--spec` wants a `.json` file.
 
 Older spellings still work, so existing scripts don't need to change: `-remote` is the same as `--remote`, and `--n` the same as `-n`. New short bundles such as `-kn 5` are read the POSIX way, so a mistyped `-nope` means `-n ope` and fails as an invalid number.
 
@@ -351,39 +426,6 @@ Guidelines:
 * Maintain CLI backward compatibility when possible
 * Add unit tests for new schema keywords and formats
 * Document new flags in the Command Line Options table of this README
-
-- 🔴 high impact features or improvements or bug fixes should be prioritized.
-- 🟠 medium-high general improvements to code quality, usability, performance and testing.
-- 🟡 medium features, improvement or refactoring.
-- 🟢 low urgency features, minor tweaks, documentation updates.
-- 🔵 funny little things.
-
-## Roadmap 🦉
-- 🟠 Generalize and modularize code for easier extension
-- 🟡 Implement result export to CSV/JSON formatsI keys
-
-
-### To-Do Functionality List 🦞
-- 🔴 Add support for certificates
-- 🟠 Implement logging formats (txt, csv, xml, html) with automatic detection of file extension
-- 🟠 Add support for more response formats (e.g., XML, HTML)
-- 🟡 Add support for more authentication methods (e.g., OAuth, AP )
-- 🟡 Implement result export to CSV/JSON formats keys
-- 🟢 Add support for XML body for SOAP APIs  
-- 🟢 Add file logger
-
-### To-Do Improvement List 🐍
-- 🔵 Calculate and optimize code complexity
-- 🟠 Include response time measurements
-- 🟠 Generalize and modularize code for easier extension
-- 🟠 Implement request rate limiting
-
-### To-Do Bug fixes List 🦔
-
-
-### To-Do Testing List 🦅
- 
----
 
 ## License 🐮
 

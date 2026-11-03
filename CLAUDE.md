@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Fuzzy is a concurrent, fast, reliable and efficient HTTP API fuzzer written in Go. It takes an OpenAPI 3.0 spec and sends semantically valid requests to every endpoint, using random or dictionary values, then writes a Markdown report.
+Fuzzy is a concurrent, fast, reliable and efficient HTTP API fuzzer written in Go. It takes an OpenAPI 3.0 spec and sends semantically valid requests to every endpoint, using random or dictionary values, then writes a Markdown or JSON report.
 
 `README.md` is the user documentation: full flag table, examples, known limitations and roadmap. Update it when flags or behavior change.
 
@@ -25,7 +25,7 @@ The entry point is `cmd/fuzzy`, a Cobra root command that does the fuzzing itsel
 | `openapi` | Loads the spec, resolves `$ref` and `allOf` |
 | `generator` | Turns schemas into valid values, including dictionary handling |
 | `fuzzer` | Encodes requests, runs the worker pool, filters statuses |
-| `report` | Writes the Markdown report |
+| `report` | Writes the Markdown or JSON report |
 
 `progress` sits beside this flow: `cmd/fuzzy` passes it the snapshots `fuzzer` emits, and it draws them on stderr: in a terminal, a status bar under the endpoints colored by state (red not tested, yellow testing, white all sent); otherwise, plain lines.
 
@@ -39,6 +39,7 @@ A **result** is the tuple `(endpoint, status code, message, input)`. Each endpoi
 - **Dictionary with a fallback.** A dictionary value is used only where the spec allows it. Anything it doesn't cover gets a random valid value.
 - **Seeds reproduce inputs at any concurrency.** Each job's random stream derives only from the seed and the job, never from scheduling.
 - **`--status` only filters the report.** Filtered results still count in each endpoint's totals. `err` means a request got no response.
+- **Report formats stay equivalent.** Markdown (the default) and JSON render the same `document` in `internal/report`, so they share structure and information. The JSON schema is covered by a golden test: scripts depend on it.
 - **The host always comes from `--remote`.** Fuzzy never calls the server named in the spec, and redirects are reported, not followed.
 - **Old flag spellings keep working.** `canonicalArgs` in `cmd/fuzzy/args.go` turns `-remote` into `--remote` and `--n` into `-n`, because commands written for the `flag` package must not break.
 - **Exit codes are stable.** `0` when the run completes, whatever the API answered, `1` when it can't run, `2` for invalid arguments. A run failure is wrapped in `runError`; any other error counts as invalid arguments.
