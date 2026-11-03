@@ -19,6 +19,21 @@ import (
 	"fuzzy/internal/runlog"
 )
 
+const (
+	retentionWarningResults = 1_000_000
+	bytesPerResult          = 1000 // measured on a run with short inputs and empty responses
+)
+
+// retentionWarning warns about a run whose results won't fit in memory: the
+// report needs all of them, and -n follows the size of the dictionary by default.
+func retentionWarning(total int, filter fuzzer.StatusFilter) string {
+	if total < retentionWarningResults || filter.String() != "all" {
+		return ""
+	}
+	return fmt.Sprintf("the report will keep up to %d results in memory, about %.1f GB: keep fewer with --status, or send fewer requests with -n",
+		total, float64(total)*bytesPerResult/1e9)
+}
+
 // fuzz loads the inputs, runs the fuzzer and writes the report.
 func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) error {
 	doc, err := openapi.Load(cfg.SpecPath)
@@ -31,6 +46,7 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 		if dict, err = generator.LoadDictionary(cfg.DictPath); err != nil {
 			return err
 		}
+		defer dict.Close()
 	}
 
 	gen := generator.New(cfg.Bounds, dict, cfg.Seed)
@@ -87,6 +103,10 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 	}
 	for _, warning := range gen.Warnings() {
 		log.Warn("spec warning", "warning", warning)
+	}
+	if warning := retentionWarning(len(targets)*requests, cfg.Filter); warning != "" {
+		fmt.Fprintln(stderr, "[!] "+warning)
+		log.Warn(warning)
 	}
 
 	display := progress.New(stderr)
@@ -146,6 +166,10 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 	display.Finish()
 	if checkpointErr != nil {
 		fmt.Fprintf(stderr, "[!] report checkpoint failed: %v\n", checkpointErr)
+	}
+	if err := dict.Err(); err != nil {
+		fmt.Fprintf(stderr, "[!] dictionary values were replaced by random ones: %v\n", err)
+		log.Warn("dictionary unreadable", "error", err)
 	}
 
 	err = writeReport(outcomes, ctx.Err() != nil)
