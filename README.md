@@ -62,7 +62,7 @@ The body matches the schema in every field, so it got past validation and reache
 | Peak memory | 19 MB, at both 6,000 and 120,000 requests |
 | Requests rejected as invalid (`422`) | 0 of 120,000 |
 | Same seed at `-c 1` and `-c 50` | 600 of 600 inputs identical |
-| Binary size | 14.6 MB |
+| Binary size | 14.7 MB |
 
 These come from one Linux machine, fuzzing the in-memory `examples/crud` API on localhost with `-c 20 --status 5xx,err`. A real API will set its own pace. Results that pass `--status` stay in memory for the whole run, so a run that keeps every result uses more.
 
