@@ -37,7 +37,8 @@ A **result** is the tuple `(endpoint, status code, message, input)`, along with 
 - **The spec beats the bounds.** Values come from the intersection of the flag bounds and the schema's range. If the two don't overlap, the schema's range is used.
 - **Random defaults.** Strings have 1 to 10 characters, integers go from 0 to 1000, floats from 0 to 1000.0. The charset is `unicode` or `alnum`.
 - **Dictionary with a fallback.** A dictionary value is used only where the spec allows it. Anything it doesn't cover gets a random valid value.
-- **Selection doesn't change inputs.** `--include` and `--exclude` apply after `fuzzer.Compile`, and a job's stream uses its target's position among all compiled operations, so it doesn't depend on what else is selected.
+- **Seeds reproduce inputs at any concurrency.** Each job's random stream derives only from the seed and the job, never from scheduling, and `openapi` resolves schemas in a fixed order, never a map's. `README.md` explains this under "Reproducing a Run": keep that section in step.
+- **Selection doesn't change inputs.** `--include` and `--exclude` apply after `fuzzer.Compile`, and a job's stream uses its target's position among all compiled operations, so a seed replays one endpoint of a bigger run.
 - **A selector that matches nothing is an error.** A typo in an `--exclude` must not quietly call what it was meant to protect. A bad selector is an invalid argument (exit `2`), an unmatched one a run failure (exit `1`), and neither sends a request.
 - **`--status` only filters the report.** Filtered results still count in each endpoint's totals. `err` means a request got no response.
 - **Report formats stay equivalent.** Every format renders the same `document` in `internal/report`, so they share structure and information. The one exception is CSV, which exports only the results. The JSON schema is covered by a golden test: scripts depend on it.

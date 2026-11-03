@@ -44,6 +44,7 @@ The body matches the schema in every field, so it got past validation and reache
 * **Your choice of endpoints**: Include or exclude them by method, path pattern or tag, and preview the result with `--list`.
 * **Every place a value can go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text, binary and XML bodies, SOAP envelopes included.
 * **Your payloads, where they fit**: Dictionary values are only used where the spec allows them. Anything they don't cover gets a random valid value.
+* **Failures you can reproduce**: Every report records its seed, and the same seed produces the same inputs at any concurrency. See [Reproducing a Run](#reproducing-a-run-).
 * **Reports for people and scripts**: Markdown, HTML or plain text to read, JSON or XML for CI, CSV for a spreadsheet, chosen by the file extension. Filter by status code without losing each endpoint's totals.
 * **Response times**: Each endpoint's minimum, mean, percentiles and maximum, and the time of every reported result.
 * **Messages you can read**: XML and HTML answers are reduced to their text, so a SOAP fault reads `faultcode: soap:Server; faultstring: db down`.
@@ -60,6 +61,7 @@ The body matches the schema in every field, so it got past validation and reache
 | Speed | 120,000 requests in 20.9 s, about 5,700 req/s |
 | Peak memory | 17 MB, at both 6,000 and 120,000 requests |
 | Requests rejected as invalid (`422`) | 0 of 120,000 |
+| Same seed at `-c 1` and `-c 50` | 600 of 600 inputs identical |
 | Binary size | 13 MB |
 
 These come from one Linux machine, fuzzing the in-memory `examples/crud` API on localhost with `-c 20 --status 5xx,err`. A real API will set its own pace. Results that pass `--status` stay in memory for the whole run, so a run that keeps every result uses more.
@@ -107,7 +109,7 @@ go build -o fuzzy ./cmd/fuzzy
 | DELETE /invoices/{invoice_id} | 100 | 204 ×3, 404 ×97 |
 | PUT /invoices/{invoice_id}/status | 100 | 200 ×1, 404 ×96, 409 ×3 |
 
-Your counts may differ: the answers depend on the server's state and the order the requests arrive in.
+Your counts may differ: the seed fixes the inputs, but the answers depend on the server's state and the order the requests arrive in.
 
 **Add it to CI.** Fuzzy exits with `0` whatever the API answered, so let the JSON report decide:
 ```bash
@@ -169,7 +171,13 @@ Each line has an endpoint, followed by a tab and its tags if it has any, so `cut
 
 A selector that matches no endpoint of the spec stops the run with exit code `1` before any request is sent. Otherwise, a typo in an `--exclude` would quietly call the endpoints it was meant to protect.
 
-The report says which selectors were used and how many endpoints they left out. Endpoints left out don't appear under skipped endpoints, which are the ones that couldn't be fuzzed. Warnings still cover the whole spec, because every schema is compiled.
+An endpoint gets the same inputs whichever others are left out, so you can replay one from a bigger run with its seed and the same spec and value flags:
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json --include 'GET /user/{id}' --seed 42
+```
+
+The report says which selectors were used and how many endpoints they left out. Endpoints left out don't appear under skipped endpoints, which are the ones that couldn't be fuzzed. Warnings still cover the whole spec, because every schema is compiled to keep the seed's inputs stable.
 
 ### Choosing the Results 🐠
 
@@ -222,7 +230,7 @@ Every format but CSV has the same structure and the same information. XML uses t
 | Skipped endpoints | `skipped` |
 | Warnings | `warnings` |
 
-CSV exports only the results, with one row for each reported result, since the overview and the totals don't fit in a table of results. So an endpoint with nothing reported has no row, and `--status` matters more here. `seed` and `interrupted` repeat on every row, so a row keeps its seed, and a partial run can be recognized, after it's imported somewhere else:
+CSV exports only the results, with one row for each reported result, since the overview and the totals don't fit in a table of results. So an endpoint with nothing reported has no row, and `--status` matters more here. `seed` and `interrupted` repeat on every row, so a row can be reproduced, and a partial run recognized, after it's imported somewhere else:
 
 ```csv
 operation,endpoint,status,message,input,durationMs,seed,interrupted
@@ -295,7 +303,7 @@ GET /user/{id},GET /v1/user/427,500,"{""error"":""db timeout""}","{""path"":{""i
 A few values are written differently, to suit the format:
 
 - **`status`**: A number, or `null` in JSON when the request got no response. Every other format shows that case as `ERR`, and `statusCodes` counts it under the `ERR` key.
-- **`seed`**: A string in JSON, because seeds use 64 bits and many JSON tools would round such a large number.
+- **`seed`**: A string in JSON, because seeds use 64 bits and many JSON tools would round such a large number, and a rounded seed doesn't reproduce the run.
 - **`selection`**: Always there in JSON and XML. Markdown, text and HTML only show it when a run used `--include` or `--exclude`. CSV has no overview, so it doesn't show it.
 - **Empty values**: In JSON and XML, every key is always there. An empty list is `[]` or an empty element, and text that doesn't apply is empty, like `dictionary` when values are only random.
 - **Text from the server**: Markdown, HTML and text neutralize markup and control characters so a response can't break the document or a terminal, and the HTML page also forbids scripts. JSON and XML keep what the server really sent, apart from characters XML can't hold, so treat `message` as untrusted if you display it. CSV keeps it too, but puts a `'` before a cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, because a spreadsheet would run it as a formula.
@@ -364,6 +372,37 @@ If `--remote` has no path, the path of the spec's `servers` entry is added to it
 |---|---|---|
 | `http://localhost:8080` | `https://prod.example.com/api/v3` | `http://localhost:8080/api/v3/user/1` |
 | `http://localhost:8080/custom` | `https://prod.example.com/api/v3` | `http://localhost:8080/custom/user/1` |
+
+### Reproducing a Run 🦎
+
+Run Fuzzy again with the same seed and it generates the same inputs: the same optional parameters left out or sent, and the same values in them. Every run has a seed. Pass your own with `--seed`, or Fuzzy picks a random one (also for `--seed 0`) and prints it on stdout and in the report, the log and every CSV row.
+
+To reproduce a run, keep the seed, the spec file and the flags that shape values:
+
+```bash
+./fuzzy --remote http://localhost:8080 --spec api.json --seed 42 --dict values.txt --string-max 20
+```
+
+| Inputs stay the same when you change | Inputs can change when you change |
+|---|---|
+| `-c`, so any concurrency gives the same inputs | `--seed` |
+| `--remote`, `-H`, `-k` and `--timeout` | The spec, where even one new endpoint can change every input |
+| `--status`, `--format`, `-o`, `--log` and `--incremental` | `--dict`, or the contents of the dictionary |
+| `--include` and `--exclude`, for the endpoints that still run | `--string-min`, `--string-max`, `--int-min`, `--int-max`, `--float-min`, `--float-max` and `--charset` |
+| `-n`, where a smaller run sends the first inputs of a bigger one | The version of Fuzzy |
+
+**How it works.** Three things make this hold:
+
+1. **Each request has its own random stream.** It's derived from the seed, the endpoint's position among all the endpoints of the spec and the request's number, and never from which worker sends it or when. That's why concurrency doesn't matter, and why leaving endpoints out doesn't change the others.
+2. **The seed picks where each list starts.** Enum and dictionary values aren't drawn at random: the seed chooses a starting point in each list, and the request's number moves through it, so every value gets its turn. All schemas are compiled before endpoints are selected, so these starting points don't depend on the selection either.
+3. **The spec is always read in the same order.** Paths, schemas and `allOf` merges are processed in a fixed order, so a spec resolves to the same schemas on every run.
+
+**What a seed doesn't reproduce.** It fixes what Fuzzy sends, not what comes back:
+
+- **Answers**: Status codes, messages and response times depend on the server. So does the outcome of a request that needs earlier data: `GET /invoices/{id}` only finds an invoice that an earlier `POST` created, and with `-c` above 1 the requests can arrive in a different order.
+- **Multipart boundaries**: They're random on every request, so the raw bytes of a multipart body differ even though its fields don't.
+
+To chase a failure that depends on state, reset the target between runs and use `-c 1`, so the requests arrive in the same order each time.
 
 ---
 
@@ -475,7 +514,7 @@ Every flag has a short name with two dashes and a long name with one, as `--help
 | `--log`, `-log` | Append a line for every request to this file (default no log) | `--log run.log` |
 | `--H`, `-header` | Header for every request, repeatable; overrides generated ones | `-H "Authorization: Bearer abc"` |
 | `--k`, `-insecure` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |
-| `--sd`, `-seed` | Seed of the run's random values (default random, also for `0`; printed in the report) | `--seed 42` |
+| `--sd`, `-seed` | Seed to reproduce a run's inputs (default random, also for `0`; printed in the report) | `--seed 42` |
 
 ### Help, Version and Shell Completion 🦭
 
@@ -533,7 +572,8 @@ Fuzzy really changes or deletes data, so only test systems you own or have expli
 1. **Isolate the Target**: Run it against a disposable environment, such as a container or a VM, with limits on its CPU and memory. Don't fuzz sensitive production data.
 2. **Start Small**: Begin with a low `-n`, a small set of test values and a few endpoints (check them with `--list`), then expand gradually. Lower `-c` to avoid overwhelming the target.
 3. **Focus the Report**: Use `--status 5xx,err` to see what went wrong.
-4. **Use Real Inputs**: Real-world values in your dictionary improve the results. Anonymize sensitive data first.
+4. **Keep the Seed**: It's in every report, and it [reproduces the inputs of the run](#reproducing-a-run-).
+5. **Use Real Inputs**: Real-world values in your dictionary improve the results. Anonymize sensitive data first.
 
 ---
 

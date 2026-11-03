@@ -359,3 +359,51 @@ func TestEveryFormatShowsTheSelection(t *testing.T) {
 		})
 	}
 }
+
+// The README promises this: -n only says how far along the same inputs a run goes.
+func TestASmallerRunSendsTheFirstInputsOfABiggerOne(t *testing.T) {
+	spec := writeSelectionSpec(t)
+	srv, _ := recorder(t)
+	dir := t.TempDir()
+
+	inputs := func(requests string) map[string][]string {
+		t.Helper()
+		report := filepath.Join(dir, requests+".json")
+		code, _, stderr := runCLI(t, "--remote", srv.URL, "--spec", spec, "--seed", "42", "-n", requests, "-c", "4", "--format", "json", "-o", report)
+		if code != exitOK {
+			t.Fatalf("exit %d: %s", code, stderr)
+		}
+		data, err := os.ReadFile(report)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed struct {
+			Endpoints []struct {
+				Method, Path string
+				Results      struct {
+					Items []struct{ Input string }
+				}
+			}
+		}
+		if err := json.Unmarshal(data, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		out := map[string][]string{}
+		for _, e := range parsed.Endpoints {
+			for _, item := range e.Results.Items {
+				out[e.Method+" "+e.Path] = append(out[e.Method+" "+e.Path], item.Input)
+			}
+		}
+		return out
+	}
+
+	small, big := inputs("10"), inputs("30")
+	if len(small) == 0 {
+		t.Fatal("no results")
+	}
+	for endpoint, first := range small {
+		if len(first) != 10 || len(big[endpoint]) != 30 || !slices.Equal(first, big[endpoint][:10]) {
+			t.Errorf("%s: %v is not the start of %v", endpoint, first, big[endpoint])
+		}
+	}
+}
