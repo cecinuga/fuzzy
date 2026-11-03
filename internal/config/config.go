@@ -107,7 +107,7 @@ func (f *Flags) Register(fs *pflag.FlagSet) {
 	// An array, not a slice: a slice would split header values on their commas.
 	fs.StringArrayVarP(&f.headers, "header", "H", nil, "`header` for every request, 'Name: value' (repeatable)")
 	fs.BoolVarP(&f.insecure, "insecure", "k", false, "skip TLS certificate verification")
-	fs.Uint64Var(&f.seed, "seed", 0, "seed of the run's random values (default random)")
+	fs.Uint64Var(&f.seed, "seed", 0, "seed to reproduce a run's inputs (default random)")
 }
 
 // Listing reports whether --list was given.

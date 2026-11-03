@@ -1,7 +1,9 @@
 package openapi
 
 import (
+	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -408,5 +410,98 @@ func TestBasePathNeverRunsIntoTheHost(t *testing.T) {
 	doc := mustParse(t, `{"swagger":"2.0","basePath":".evil.example","paths":{"/a":{"get":{}}}}`)
 	if got := doc.Operations[0].BasePath; got != "/.evil.example" {
 		t.Errorf("swagger base path %q", got)
+	}
+}
+
+// A back-reference through a property used to see a half-merged schema, depending on
+// which schema a run happened to flatten first.
+const backReferenceSpec = `{"openapi":"3.0.3","paths":{"/d":{"post":{"requestBody":{"required":true,"content":{
+	"application/json":{"schema":{"$ref":"#/components/schemas/Dog"}},
+	"application/xml":{"schema":{"$ref":"#/components/schemas/Node"}}}}}}},
+	"components":{"schemas":{
+	"Base":{"type":"object","required":["id"],"properties":{"id":{"type":"integer"}}},
+	"Pet":{"type":"object","properties":{"friend":{"$ref":"#/components/schemas/Dog"}},"allOf":[{"$ref":"#/components/schemas/Base"}]},
+	"Dog":{"allOf":[{"$ref":"#/components/schemas/Pet"},{"type":"object","properties":{"bark":{"type":"string"}}}]},
+	"Named":{"type":"object","required":["name"],"properties":{"name":{"type":"string"},"parent":{"$ref":"#/components/schemas/Node"}}},
+	"Node":{"allOf":[{"$ref":"#/components/schemas/Named"},{"properties":{"parent":{"required":["x"],"properties":{"x":{"type":"string"}}}}}]}
+}}}`
+
+func TestAllOfSurvivesBackReferences(t *testing.T) {
+	for range 200 {
+		schemas := mustParse(t, backReferenceSpec).Components.Schemas
+		dog := schemas["Dog"]
+		if !slices.Contains(dog.Required, "id") || dog.Properties["id"] == nil || dog.Properties["friend"] != dog {
+			t.Fatalf("Dog lost what it inherits through Pet: required %v, properties %v", dog.Required, sortedKeys(dog.Properties))
+		}
+		// parent is defined twice, and one definition is the schema being merged.
+		parent := schemas["Node"].Properties["parent"]
+		if !slices.Contains(parent.Required, "name") || !slices.Contains(parent.Required, "x") ||
+			parent.Properties["name"] == nil || parent.Properties["x"] == nil {
+			t.Fatalf("parent must satisfy both definitions: required %v, properties %v", parent.Required, sortedKeys(parent.Properties))
+		}
+	}
+}
+
+func TestResolvedSchemasDoNotDependOnTheRun(t *testing.T) {
+	first := resolvedShape(mustParse(t, backReferenceSpec))
+	if strings.Contains(first, "allOf=1") || strings.Contains(first, "allOf=2") {
+		t.Errorf("an allOf was left unmerged:\n%s", first)
+	}
+	for range 200 {
+		if got := resolvedShape(mustParse(t, backReferenceSpec)); got != first {
+			t.Fatalf("schemas differ between parses:\n%s\nvs\n%s", got, first)
+		}
+	}
+}
+
+// resolvedShape writes down the schemas of doc, with cycles as back-references.
+func resolvedShape(doc *Document) string {
+	var out strings.Builder
+	seen := map[*Schema]int{}
+	var visit func(s *Schema)
+	visit = func(s *Schema) {
+		if s == nil {
+			return
+		}
+		if id, ok := seen[s]; ok {
+			fmt.Fprintf(&out, "#%d", id)
+			return
+		}
+		seen[s] = len(seen)
+		fmt.Fprintf(&out, "#%d{%s allOf=%d required=%v order=%v", seen[s], s.Type, len(s.AllOf), s.Required, s.PropertyOrder)
+		for _, name := range sortedKeys(s.Properties) {
+			fmt.Fprintf(&out, " %s:", name)
+			visit(s.Properties[name])
+		}
+		visit(s.Items)
+		out.WriteString("}")
+	}
+	for _, name := range sortedKeys(doc.Components.Schemas) {
+		fmt.Fprintf(&out, "%s=", name)
+		visit(doc.Components.Schemas[name])
+		out.WriteString("\n")
+	}
+	return out.String()
+}
+
+func TestAllOfCombinesEveryDefinitionOfAProperty(t *testing.T) {
+	schemas := mustParse(t, wrapPaths(`{"/a":{"get":{}}}`, `{"schemas":{
+		"A":{"properties":{"p":{"type":"integer","minimum":1}}},
+		"B":{"properties":{"p":{"maximum":9}}},
+		"C":{"properties":{"p":{"multipleOf":3}}},
+		"Three":{"allOf":[{"$ref":"#/components/schemas/A"},{"$ref":"#/components/schemas/B"},{"$ref":"#/components/schemas/C"}]},
+		"Child":{"allOf":[{"$ref":"#/components/schemas/Three"},{"properties":{"p":{"minimum":5}}}]}
+	}}`)).Components.Schemas
+
+	p := schemas["Three"].Properties["p"]
+	if p.Type != "integer" || Float(p.Minimum) != 1 || Float(p.Maximum) != 9 || Float(p.MultipleOf) != 3 {
+		t.Errorf("p should carry all three definitions: %+v", p)
+	}
+	child := schemas["Child"].Properties["p"]
+	if Float(child.Minimum) != 5 || Float(child.Maximum) != 9 || Float(child.MultipleOf) != 3 {
+		t.Errorf("Child's p should add to what it inherits: %+v", child)
+	}
+	if schemas["A"].Properties["p"].Maximum != nil || schemas["B"].Properties["p"].Minimum != nil {
+		t.Error("merging must not alter the source schemas")
 	}
 }

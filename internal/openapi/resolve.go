@@ -18,8 +18,12 @@ const (
 type resolver struct {
 	doc     *Document
 	walked  map[*Schema]bool
+	order   []*Schema // the walked schemas, in the order they were reached
 	merging map[*Schema]bool
 	merged  map[*Schema]bool
+
+	combined []*Schema       // what combineLater made, still to flatten
+	depths   map[*Schema]int // how deep in an overlap each of those is
 }
 
 func newResolver(doc *Document) *resolver {
@@ -28,6 +32,7 @@ func newResolver(doc *Document) *resolver {
 		walked:  map[*Schema]bool{},
 		merging: map[*Schema]bool{},
 		merged:  map[*Schema]bool{},
+		depths:  map[*Schema]int{},
 	}
 }
 
@@ -63,8 +68,11 @@ func (r *resolver) resolveAll() error {
 			}
 		}
 	}
-	for s := range r.walked {
+	for _, s := range r.order {
 		r.flatten(s)
+	}
+	for i := 0; i < len(r.combined); i++ { // flattening one can add more
+		r.flatten(r.combined[i])
 	}
 	return nil
 }
@@ -129,7 +137,8 @@ func (r *resolver) body(b *RequestBody) (*RequestBody, error) {
 		}
 		b = target
 	}
-	for contentType, media := range b.Content {
+	for _, contentType := range sortedKeys(b.Content) {
+		media := b.Content[contentType]
 		if media == nil {
 			delete(b.Content, contentType)
 			continue
@@ -159,12 +168,13 @@ func (r *resolver) schema(s *Schema) (*Schema, error) {
 		return s, nil
 	}
 	r.walked[s] = true
+	r.order = append(r.order, s)
 
 	if s.Items, err = r.optional(s.Items); err != nil {
 		return nil, err
 	}
-	for name, prop := range s.Properties {
-		resolved, err := r.schema(prop)
+	for _, name := range sortedKeys(s.Properties) {
+		resolved, err := r.schema(s.Properties[name])
 		if err != nil {
 			return nil, fmt.Errorf("property %q: %w", name, err)
 		}
@@ -262,23 +272,45 @@ func discriminatorValue(d *Discriminator, ref string) string {
 }
 
 // flatten merges allOf members into s. The in-progress guard stops a schema
-// that (indirectly) includes itself from recursing forever.
+// that (indirectly) includes itself from recursing forever. It doesn't go through
+// properties: they stay pointers, and following them could reach a schema that
+// includes s while s is only half merged, which would then miss part of s.
 func (r *resolver) flatten(s *Schema) {
 	if r.merged[s] || r.merging[s] {
 		return
 	}
 	r.merging[s] = true
-	// Properties first: merge may copy them, and a copy would miss a later flatten.
-	for _, prop := range s.Properties {
-		r.flatten(prop)
+	// Nothing else can refer to what is combined for s until s is done, so a property
+	// defined by a third member joins that schema: a further copy would leave the last
+	// one unused, and flattening those grows exponentially on recursive overlaps.
+	var made []*Schema
+	combine := func(own, prop *Schema, depth int) *Schema {
+		if slices.Contains(made, own) {
+			own.AllOf = append(own.AllOf, prop)
+			return own
+		}
+		combined := r.combineLater(own, prop, depth)
+		made = append(made, combined)
+		return combined
 	}
 	for _, member := range s.AllOf {
 		r.flatten(member)
-		merge(s, member)
+		mergeAt(s, member, r.depths[s], combine)
 	}
 	s.AllOf = nil
 	delete(r.merging, s)
 	r.merged[s] = true
+}
+
+// combineLater returns a schema holding both definitions of a property, to flatten
+// once every walked schema is complete. The definitions may not be yet, so the new
+// schema also takes over the allOf members own has left.
+func (r *resolver) combineLater(own, prop *Schema, depth int) *Schema {
+	combined := own.mergeCopy()
+	combined.AllOf = append(slices.Clone(own.AllOf), prop)
+	r.depths[combined] = depth
+	r.combined = append(r.combined, combined)
+	return combined
 }
 
 func sortedKeys[V any](m map[string]V) []string {

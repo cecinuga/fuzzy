@@ -968,3 +968,34 @@ func TestCompileSkipsWhatWouldLeaveTheRemoteHost(t *testing.T) {
 		})
 	}
 }
+
+// Equal specs and seeds give equal inputs, whatever order a parse resolved them in.
+func TestInputsDoNotDependOnTheParse(t *testing.T) {
+	const spec = `{"openapi":"3.0.3","paths":{"/d":{"post":{"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/Dog"}}}}}}},
+	"components":{"schemas":{
+	"Base":{"type":"object","required":["id"],"properties":{"id":{"type":"integer"}}},
+	"Pet":{"type":"object","properties":{"friend":{"$ref":"#/components/schemas/Dog"}},"allOf":[{"$ref":"#/components/schemas/Base"}]},
+	"Dog":{"allOf":[{"$ref":"#/components/schemas/Pet"},{"type":"object","required":["bark"],"properties":{"bark":{"type":"string"}}}]}
+	}}}`
+	inputs := func() []string {
+		targets, _ := compileSpec(t, "http://x.test", spec)
+		var out []string
+		for i := range 20 {
+			_, input, err := targets[0].build(context.Background(), rand.New(rand.NewPCG(1, uint64(i))), i)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(input, `"id":`) {
+				t.Fatalf("required id missing: %s", input)
+			}
+			out = append(out, input)
+		}
+		return out
+	}
+	first := inputs()
+	for range 100 {
+		if got := inputs(); !slices.Equal(got, first) {
+			t.Fatalf("inputs differ between parses:\n%v\nvs\n%v", got, first)
+		}
+	}
+}

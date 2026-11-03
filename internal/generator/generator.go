@@ -58,7 +58,7 @@ type memoKey struct {
 }
 
 // New returns a Generator. dict may be nil. The seed fixes where each value
-// list starts.
+// list starts, so that a run can be reproduced.
 func New(bounds Bounds, dict *Dictionary, seed uint64) *Generator {
 	return &Generator{
 		bounds:  bounds,
