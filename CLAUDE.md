@@ -27,6 +27,8 @@ The entry point is `cmd/fuzzy`. Data flows through the packages in `internal/` i
 | `fuzzer` | Encodes requests, runs the worker pool, filters statuses |
 | `report` | Writes the Markdown report |
 
+`progress` sits beside this flow: `cmd/fuzzy` passes it the snapshots `fuzzer` emits, and it draws them on stderr as a status bar in a terminal or as plain lines otherwise.
+
 A **result** is the tuple `(endpoint, status code, message, input)`. Each endpoint in the report shows its spec (HTTP verb, parameters, parameter types) and its results.
 
 ## Behavior to preserve

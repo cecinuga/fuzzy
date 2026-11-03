@@ -6,7 +6,6 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
-	"fmt"
 	"io"
 	"math/rand/v2"
 	"net/http"
@@ -18,10 +17,9 @@ import (
 )
 
 const (
-	snippetSize  = 1 << 10 // bytes of a response body inspected for the message
-	drainLimit   = 1 << 20 // bytes drained to keep a connection reusable
-	maxMsgRunes  = 200
-	progressTick = 5 * time.Second
+	snippetSize = 1 << 10 // bytes of a response body inspected for the message
+	drainLimit  = 1 << 20 // bytes drained to keep a connection reusable
+	maxMsgRunes = 200
 )
 
 // Options configures a run.
@@ -33,7 +31,21 @@ type Options struct {
 	Headers     http.Header // sent with every request, overriding generated ones
 	Seed        uint64
 	Filter      StatusFilter
-	Progress    io.Writer // optional
+
+	// Progress, if set, receives a snapshot every ProgressEvery. It runs on the
+	// goroutine that collects results, so it must return quickly.
+	Progress      func(Progress)
+	ProgressEvery time.Duration
+}
+
+// Progress is a run's state at one moment. Like an Outcome's Counts, it covers
+// every call, whatever the status filter keeps for the report.
+type Progress struct {
+	Done            int // calls completed so far
+	Total           int // calls the run will make if it isn't interrupted
+	ServerErrors    int // calls answered with a 5xx
+	TransportErrors int // calls that got no response
+	Elapsed         time.Duration
 }
 
 // Result is the outcome of one call: (endpoint, status code, message, input).
@@ -110,11 +122,16 @@ func collect(records <-chan record, opts Options, targets []*Target) []Outcome {
 		outcomes[i] = Outcome{Target: t, Counts: map[int]int{}}
 	}
 
-	ticker := time.NewTicker(progressTick)
-	defer ticker.Stop()
+	// A nil channel is never ready, which turns the tick case off.
+	var tick <-chan time.Time
+	if opts.Progress != nil {
+		ticker := time.NewTicker(opts.ProgressEvery)
+		defer ticker.Stop()
+		tick = ticker.C
+	}
 
-	total := len(targets) * opts.Requests
-	done := 0
+	started := time.Now()
+	progress := Progress{Total: len(targets) * opts.Requests}
 	for {
 		select {
 		case rec, open := <-records:
@@ -125,17 +142,22 @@ func collect(records <-chan record, opts Options, targets []*Target) []Outcome {
 				}
 				return outcomes
 			}
-			done++
+			progress.Done++
+			switch status := rec.result.Status; {
+			case status == TransportError:
+				progress.TransportErrors++
+			case status >= 500:
+				progress.ServerErrors++
+			}
 			out := &outcomes[rec.target]
 			out.Sent++
 			out.Counts[rec.result.Status]++
 			if opts.Filter.Match(rec.result.Status) {
 				out.Results = append(out.Results, rec.result)
 			}
-		case <-ticker.C:
-			if opts.Progress != nil {
-				fmt.Fprintf(opts.Progress, "[+] %d/%d requests\n", done, total)
-			}
+		case <-tick:
+			progress.Elapsed = time.Since(started)
+			opts.Progress(progress)
 		}
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"fuzzy/internal/fuzzer"
 	"fuzzy/internal/generator"
 	"fuzzy/internal/openapi"
+	"fuzzy/internal/progress"
 	"fuzzy/internal/report"
 )
 
@@ -86,17 +87,20 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 
 	fmt.Fprintf(stdout, "[+] fuzzing %d endpoints of %s, %d requests each (seed %d)\n", len(targets), cfg.Remote, requests, cfg.Seed)
 
+	display := progress.New(stderr)
 	started := time.Now()
 	outcomes := fuzzer.Run(ctx, fuzzer.Options{
-		Requests:    requests,
-		Concurrency: cfg.Concurrency,
-		Timeout:     cfg.Timeout,
-		Insecure:    cfg.Insecure,
-		Headers:     cfg.Headers,
-		Seed:        cfg.Seed,
-		Filter:      cfg.Filter,
-		Progress:    stderr,
+		Requests:      requests,
+		Concurrency:   cfg.Concurrency,
+		Timeout:       cfg.Timeout,
+		Insecure:      cfg.Insecure,
+		Headers:       cfg.Headers,
+		Seed:          cfg.Seed,
+		Filter:        cfg.Filter,
+		Progress:      display.Update,
+		ProgressEvery: display.Interval(),
 	}, targets)
+	display.Finish()
 
 	buffered := bufio.NewWriter(out)
 	err = report.Write(buffered, report.Report{

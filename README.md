@@ -48,6 +48,7 @@ Then it calls every endpoint with requests that respect the spec, using values g
 * **Markdown Report**: Each endpoint with its spec and its results, filtered by the status codes you care about
 * **Fast and Concurrent**: A bounded worker pool on a shared connection pool, with memory that stays low on big specs
 * **Reproducible**: The same seed produces the same inputs, at any concurrency
+* **Live Status Bar**: A single line that updates in place with the requests sent so far, the speed, the time left and the failures
 * **Interrupt Friendly**: Ctrl+C stops the run and still writes the report, marked as partial
 * **Lightweight**: Single binary with no external dependencies
 
@@ -130,9 +131,10 @@ With a dictionary, Fuzzy reads one value per line and works out the types each l
 ./fuzzy -remote http://localhost:8080 -spec testdata/api.json -status 5xx,err -seed 42
 ```
 
-**Output**:
+**Output** (the middle line is the status bar, which updates in place while the requests run):
 ```
 [+] fuzzing 6 endpoints of http://localhost:8080, 100 requests each (seed 42)
+⠹ [██████████░░░░░░░░░░]  52% 312/600 req · 287 req/s · ETA 1s · 5xx 17 · err 0
 [+] 600 requests sent, 0 without a response. Report: fuzzy-report.md
 ```
 
@@ -246,6 +248,7 @@ fuzzy/
 │   ├── openapi/         # Loads the spec, resolves $ref and allOf
 │   ├── generator/       # Turns schemas into valid values, dictionary included
 │   ├── fuzzer/          # Encodes requests, runs the worker pool, filters statuses
+│   ├── progress/        # Shows a run's progress: status bar or plain lines
 │   └── report/          # Writes the Markdown report
 └── testdata/
     ├── api.json         # Sample OpenAPI spec
@@ -288,7 +291,7 @@ fuzzy/
 - **Schemas Without a Type**: Fuzzy infers it from the other keywords: `properties` or `required` mean `object`, `items` or `minItems` mean `array`, `format: int64` means `integer`, `minimum` means `number`. With no hint at all, it uses `string`.
 - **Null Values**: `null` is only sent in JSON and multipart bodies, where a multipart `null` is a part with `Content-Type: application/json`. Parameters, form bodies, text bodies and binary bodies can't represent it, so they always get a real value.
 - **Spec Format**: Only OpenAPI 3.0.x in JSON. Swagger 2.0, OpenAPI 3.1 and YAML are refused with an error, and so are `$ref`s that point outside the document.
-- **Progress and Exit Codes**: Long runs print their progress to stderr every 5 seconds. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
+- **Progress and Exit Codes**: In a terminal, a status bar on stderr updates in place during the run and disappears when it ends. When stderr is redirected, or with `TERM=dumb`, Fuzzy prints a plain `[+] 1200/6000 requests` line every 5 seconds instead. The `5xx` and `err` counters cover every request, whatever `-status` keeps for the report. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
 
 ### Known Limitations 🐙
 

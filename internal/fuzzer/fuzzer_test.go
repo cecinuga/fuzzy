@@ -732,3 +732,65 @@ func TestNullIsNeverSentWhereItCannotBeRepresented(t *testing.T) {
 		})
 	}
 }
+
+func TestProgressReportsRunningTotals(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(time.Millisecond)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	targets, _ := compileSpec(t, srv.URL, paths(`{"/a":{"get":{"responses":{"200":{"description":"ok"}}}}}`))
+
+	// Run with a filter that keeps nothing: progress must count all the same.
+	filter, err := ParseStatusFilter("200")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var snapshots []Progress
+	opts := options()
+	opts.Requests = 100
+	opts.Concurrency = 1
+	opts.Filter = filter
+	opts.ProgressEvery = time.Millisecond
+	opts.Progress = func(p Progress) { snapshots = append(snapshots, p) }
+	Run(context.Background(), opts, targets)
+
+	if len(snapshots) == 0 {
+		t.Fatal("no progress reported")
+	}
+	last := Progress{}
+	for _, p := range snapshots {
+		if p.Total != 100 {
+			t.Fatalf("total = %d, want 100", p.Total)
+		}
+		if p.Done < last.Done || p.Elapsed < last.Elapsed {
+			t.Fatalf("progress went backwards: %+v after %+v", p, last)
+		}
+		if p.ServerErrors != p.Done || p.TransportErrors != 0 {
+			t.Fatalf("every call is a 500, got %+v", p)
+		}
+		last = p
+	}
+	if last.Done == 0 {
+		t.Errorf("no call counted in %d snapshots", len(snapshots))
+	}
+}
+
+func TestProgressCountsTransportErrors(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	remote := srv.URL
+	srv.Close() // nothing listens here any more
+	targets, _ := compileSpec(t, remote, paths(`{"/a":{"get":{"responses":{"200":{"description":"ok"}}}}}`))
+
+	var last Progress
+	opts := options()
+	opts.Requests = 2000
+	opts.Concurrency = 1
+	opts.ProgressEvery = time.Millisecond
+	opts.Progress = func(p Progress) { last = p }
+	Run(context.Background(), opts, targets)
+
+	if last.Done == 0 || last.TransportErrors != last.Done || last.ServerErrors != 0 {
+		t.Errorf("last snapshot = %+v", last)
+	}
+}
