@@ -1,10 +1,14 @@
 package fuzzer
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"maps"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -582,5 +586,149 @@ func TestFormBodyFollowsDeclaredEncoding(t *testing.T) {
 	want := "csv=x,x&deep%5Bk%5D=v&p=q&many=y&many=y"
 	if body := string(got.requests[0].body); body != want {
 		t.Fatalf("body = %q, want %q", body, want)
+	}
+}
+
+func nullableBodySpec(contentType string) string {
+	return paths(`{"/b":{"post":{"requestBody":{"required":true,"content":{"` + contentType + `":{"schema":
+		{"type":"object","required":["n","s"],"properties":{"n":{"type":"integer","nullable":true},"s":{"type":"string","nullable":true}}}}}}}}}`)
+}
+
+func TestNullInJSONBody(t *testing.T) {
+	var got capture
+	srv := got.server(t, 200)
+	targets, _ := compileSpec(t, srv.URL, nullableBodySpec("application/json"))
+	opts := options()
+	opts.Requests = 300
+	Run(context.Background(), opts, targets)
+
+	nulls := 0
+	for _, r := range got.requests {
+		var body map[string]any
+		if err := json.Unmarshal(r.body, &body); err != nil {
+			t.Fatalf("body %q: %v", r.body, err)
+		}
+		for _, key := range []string{"n", "s"} {
+			value, present := body[key]
+			if !present {
+				t.Fatalf("required %q missing from %q", key, r.body)
+			}
+			if value == nil {
+				nulls++
+			}
+		}
+	}
+	if nulls == 0 {
+		t.Error("nullable fields should sometimes be a JSON null")
+	}
+}
+
+func TestNullInMultipartBodyIsAJSONPart(t *testing.T) {
+	var got capture
+	srv := got.server(t, 200)
+	targets, _ := compileSpec(t, srv.URL, nullableBodySpec("multipart/form-data"))
+	opts := options()
+	opts.Requests = 300
+	Run(context.Background(), opts, targets)
+
+	nulls, values := 0, 0
+	for _, r := range got.requests {
+		_, params, err := mime.ParseMediaType(r.header.Get("Content-Type"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		reader := multipart.NewReader(bytes.NewReader(r.body), params["boundary"])
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("body %q: %v", r.body, err)
+			}
+			content, _ := io.ReadAll(part)
+			if part.Header.Get("Content-Type") == "application/json" {
+				nulls++
+				if string(content) != "null" || part.FormName() == "" {
+					t.Errorf("part %q has content %q", part.FormName(), content)
+				}
+				continue
+			}
+			values++
+			if len(content) == 0 {
+				t.Errorf("part %q is empty: null must not become an empty string", part.FormName())
+			}
+		}
+	}
+	if nulls == 0 || values == 0 {
+		t.Errorf("%d null parts and %d value parts, want both", nulls, values)
+	}
+}
+
+func TestNullIsNeverSentWhereItCannotBeRepresented(t *testing.T) {
+	t.Run("parameters", func(t *testing.T) {
+		var got capture
+		srv := got.server(t, 200)
+		targets, _ := compileSpec(t, srv.URL, paths(`{"/p/{a}":{"get":{"parameters":[
+			{"name":"a","in":"path","required":true,"schema":{"type":"integer","nullable":true}},
+			{"name":"q","in":"query","required":true,"schema":{"type":"integer","nullable":true}},
+			{"name":"X-H","in":"header","required":true,"schema":{"type":"integer","nullable":true}},
+			{"name":"c","in":"cookie","required":true,"schema":{"type":"integer","nullable":true}}
+		]}}}`))
+		opts := options()
+		opts.Requests = 300
+		Run(context.Background(), opts, targets)
+
+		for _, r := range got.requests {
+			q, _ := url.ParseQuery(r.rawQuery)
+			if _, err := strconv.Atoi(strings.TrimPrefix(r.escapedPath, "/p/")); err != nil {
+				t.Fatalf("path %q", r.escapedPath)
+			}
+			if _, err := strconv.Atoi(q.Get("q")); err != nil {
+				t.Fatalf("query %q", r.rawQuery)
+			}
+			if _, err := strconv.Atoi(r.header.Get("X-H")); err != nil {
+				t.Fatalf("header %q", r.header.Get("X-H"))
+			}
+			if _, err := strconv.Atoi(strings.TrimPrefix(r.header.Get("Cookie"), "c=")); err != nil {
+				t.Fatalf("cookie %q", r.header.Get("Cookie"))
+			}
+		}
+	})
+
+	t.Run("form", func(t *testing.T) {
+		var got capture
+		srv := got.server(t, 200)
+		targets, _ := compileSpec(t, srv.URL, nullableBodySpec("application/x-www-form-urlencoded"))
+		opts := options()
+		opts.Requests = 300
+		Run(context.Background(), opts, targets)
+
+		for _, r := range got.requests {
+			form, err := url.ParseQuery(string(r.body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := strconv.Atoi(form.Get("n")); err != nil || form.Get("s") == "" {
+				t.Fatalf("form body %q carries an empty value", r.body)
+			}
+		}
+	})
+
+	for _, contentType := range []string{"text/plain", "application/octet-stream"} {
+		t.Run(contentType, func(t *testing.T) {
+			var got capture
+			srv := got.server(t, 200)
+			targets, _ := compileSpec(t, srv.URL, paths(`{"/t":{"post":{"requestBody":{"required":true,"content":{"`+contentType+`":{"schema":{"type":"string","nullable":true}}}}}}}`))
+			opts := options()
+			opts.Requests = 300
+			Run(context.Background(), opts, targets)
+
+			for _, r := range got.requests {
+				if len(r.body) == 0 {
+					t.Fatal("a null body became an empty one")
+				}
+			}
+		})
 	}
 }

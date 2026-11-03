@@ -184,3 +184,24 @@ func TestWriteReportsWriterErrors(t *testing.T) {
 type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, http.ErrHandlerTimeout }
+
+func TestReportShowsInferredTypes(t *testing.T) {
+	cases := map[string]string{
+		`{"enum":[1,2]}`:                "integer",
+		`{"format":"int64"}`:            "integer (int64)",
+		`{"minimum":1}`:                 "number",
+		`{"minItems":1}`:                "array of any",
+		`{"items":{"format":"double"}}`: "array of number (double)",
+		`{"required":["a"]}`:            "object",
+		`{}`:                            "string",
+	}
+	for schema, want := range cases {
+		doc, err := openapi.Parse([]byte(`{"openapi":"3.0.0","paths":{"/a":{"get":{"parameters":[{"name":"x","in":"query","schema":` + schema + `}]}}}}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := typeName(doc.Operations[0].Parameters[0].Schema, 0); got != want {
+			t.Errorf("%s: %q, want %q", schema, got, want)
+		}
+	}
+}

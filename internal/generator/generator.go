@@ -24,7 +24,7 @@ import (
 type Location int
 
 const (
-	InBody Location = iota
+	InBody Location = iota // JSON and multipart bodies, the only places null can travel
 	InPath
 	InQuery
 	InHeader // also used for cookies: both are restricted to ASCII
@@ -109,10 +109,13 @@ func (g *Generator) compile(s *openapi.Schema, loc Location, nesting int) node {
 }
 
 func (g *Generator) build(s *openapi.Schema, loc Location, nesting int) node {
+	// The list is complete: with an enum, nullable allows null only if it is listed.
+	if len(s.Enum) > 0 {
+		return g.pick(enumValues(s, loc))
+	}
+
 	var n node
 	switch {
-	case len(s.Enum) > 0:
-		n = g.pick(enumValues(s, loc))
 	case len(s.OneOf)+len(s.AnyOf) > 0 && nesting < maxNesting:
 		n = g.variants(s, loc, nesting)
 	default:

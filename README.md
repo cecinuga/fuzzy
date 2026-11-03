@@ -284,6 +284,9 @@ fuzzy/
 - **Redirects**: They are reported as results and not followed, so a `302` shows up as a `302`, and a redirect can never take Fuzzy away from the target.
 - **Response Bodies**: The message of a result is the start of the response body (200 characters at most), or the standard status text if the body is empty.
 - **Dictionary Coverage**: Values take turns, so with enough requests each one gets used. On an optional parameter, which is only sent about half the time, some can be missed: raise `-n` if you need them all.
+- **Enums**: Values come only from the list, ahead of the dictionary and random values. With `nullable: true`, `null` is sent only if the list includes it.
+- **Schemas Without a Type**: Fuzzy infers it from the other keywords: `properties` or `required` mean `object`, `items` or `minItems` mean `array`, `format: int64` means `integer`, `minimum` means `number`. With no hint at all, it uses `string`.
+- **Null Values**: `null` is only sent in JSON and multipart bodies, where a multipart `null` is a part with `Content-Type: application/json`. Parameters, form bodies, text bodies and binary bodies can't represent it, so they always get a real value.
 - **Spec Format**: Only OpenAPI 3.0.x in JSON. Swagger 2.0, OpenAPI 3.1 and YAML are refused with an error, and so are `$ref`s that point outside the document.
 - **Progress and Exit Codes**: Long runs print their progress to stderr every 5 seconds. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
 

@@ -79,18 +79,44 @@ type Discriminator struct {
 	Mapping      map[string]string `json:"mapping"`
 }
 
-// EffectiveType returns the declared type or infers it from the keywords in
-// use. Untyped schemas accept anything, so they are treated as strings.
+// EffectiveType returns the declared type or infers it from the other keywords.
+// With no hint at all, the schema accepts anything and is treated as a string.
 func (s *Schema) EffectiveType() string {
 	switch {
 	case s.Type != "":
 		return s.Type
-	case len(s.Properties) > 0 || s.AdditionalProperties != nil || s.MinProperties != nil || s.MaxProperties != nil:
+	case len(s.Enum) > 0:
+		return enumType(s.Enum)
+	case len(s.Properties) > 0 || len(s.Required) > 0 || s.AdditionalProperties != nil || s.MinProperties != nil || s.MaxProperties != nil:
 		return "object"
-	case s.Items != nil:
+	case s.Items != nil || s.MinItems != nil || s.MaxItems != nil || s.UniqueItems:
 		return "array"
-	case s.Minimum != nil || s.Maximum != nil || s.MultipleOf != nil:
+	case s.Format == "int32" || s.Format == "int64":
+		return "integer"
+	case s.Format == "float" || s.Format == "double" || s.Minimum != nil || s.Maximum != nil || s.MultipleOf != nil:
 		return "number"
+	}
+	return "string"
+}
+
+// enumType names the type of the first non-null member of an enum.
+func enumType(values []any) string {
+	for _, v := range values {
+		switch t := v.(type) {
+		case json.Number:
+			if _, err := t.Int64(); err == nil {
+				return "integer"
+			}
+			return "number"
+		case bool:
+			return "boolean"
+		case []any:
+			return "array"
+		case map[string]any:
+			return "object"
+		case string:
+			return "string"
+		}
 	}
 	return "string"
 }

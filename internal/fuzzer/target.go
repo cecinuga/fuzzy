@@ -114,8 +114,8 @@ func compileBody(b *openapi.RequestBody, gen *generator.Generator) (*targetBody,
 		}
 	}
 	loc := generator.InBody
-	if bestKind == bodyForm {
-		loc = generator.InQuery // form fields have the limits of query parameters
+	if bestKind == bodyForm || bestKind == bodyRaw {
+		loc = generator.InQuery // like query parameters, these cannot represent null
 	}
 	body.source = gen.Compile(schema, loc)
 	return body, nil

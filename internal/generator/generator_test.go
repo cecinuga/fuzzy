@@ -3,6 +3,7 @@ package generator
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math"
 	"math/rand/v2"
 	"os"
@@ -33,10 +34,10 @@ func parseSchema(t *testing.T, schema, components string) *openapi.Schema {
 // validate checks v against s independently of how v was generated.
 func validate(s *openapi.Schema, v any) error {
 	if v == nil {
-		if s.Nullable || slices.Contains(s.Enum, nil) {
+		if slices.Contains(s.Enum, nil) || (len(s.Enum) == 0 && s.Nullable) {
 			return nil
 		}
-		return fmt.Errorf("null for a non-nullable schema")
+		return fmt.Errorf("null is not allowed here")
 	}
 	if len(s.Enum) > 0 {
 		if !slices.ContainsFunc(s.Enum, func(e any) bool { return fmt.Sprint(e) == fmt.Sprint(v) }) {
@@ -190,6 +191,8 @@ func TestGeneratedValuesSatisfyTheirSchema(t *testing.T) {
 		"string long":    `{"type":"string","minLength":50}`,
 		"string empty":   `{"type":"string","maxLength":0}`,
 		"enum":           `{"type":"string","enum":["a","b"]}`,
+		"enum nullable":  `{"type":"string","enum":["a","b"],"nullable":true}`,
+		"enum with null": `{"type":"string","enum":["a",null],"nullable":true}`,
 		"int enum":       `{"type":"integer","enum":[1,2,3]}`,
 		"pattern sku":    `{"type":"string","pattern":"^[A-Z]{3}-[0-9]{4}$"}`,
 		"pattern negate": `{"type":"string","pattern":"^[^/]+$"}`,
@@ -557,5 +560,101 @@ func TestParameterAndFormObjectsAreNeverEmpty(t *testing.T) {
 		if obj := source.Generate(r, iter).(map[string]any); len(obj) == 0 {
 			t.Fatal("an empty object cannot be serialized as form data")
 		}
+	}
+}
+
+func TestEnumIsTheOnlySourceOfValues(t *testing.T) {
+	dict := writeDict(t, "admin\n42\ntrue\n3.5\nx\n")
+	cases := []struct {
+		name, schema string
+		want         []string
+	}{
+		{"beats dictionary", `{"type":"string","enum":["a","b"]}`, []string{"a", "b"}},
+		{"integers", `{"type":"integer","enum":[7,8]}`, []string{"7", "8"}},
+		{"beats bounds", `{"type":"integer","enum":[5000]}`, []string{"5000"}},
+		{"beats format", `{"type":"string","format":"uuid","enum":["not-a-uuid"]}`, []string{"not-a-uuid"}},
+		{"untyped", `{"enum":["a",1,true]}`, []string{"a", "1", "true"}},
+		{"nullable adds no null", `{"type":"string","enum":["a"],"nullable":true}`, []string{"a"}},
+		{"listed null is used", `{"type":"string","enum":["a",null],"nullable":true}`, []string{"a", "<nil>"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			source := New(DefaultBounds(), dict, 1).Compile(parseSchema(t, tc.schema, ""), InBody)
+			r := rand.New(rand.NewPCG(1, 2))
+			seen := map[string]bool{}
+			for iter := range 500 {
+				seen[fmt.Sprint(source.Generate(r, iter))] = true
+			}
+			if got := slices.Sorted(maps.Keys(seen)); !slices.Equal(got, slices.Sorted(slices.Values(tc.want))) {
+				t.Errorf("generated %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestUntypedSchemasGenerateTheInferredType(t *testing.T) {
+	cases := map[string]struct {
+		schema string
+		check  func(any) bool
+	}{
+		"properties": {`{"properties":{"a":{"type":"integer"}},"required":["a"]}`, func(v any) bool {
+			_, ok := v.(map[string]any)["a"].(int64)
+			return ok
+		}},
+		"required only": {`{"required":["a"]}`, func(v any) bool { _, ok := v.(map[string]any)["a"]; return ok }},
+		"items":         {`{"items":{"type":"integer"}}`, func(v any) bool { _, ok := v.([]any); return ok }},
+		"minItems":      {`{"minItems":2}`, func(v any) bool { a, ok := v.([]any); return ok && len(a) >= 2 }},
+		"uniqueItems":   {`{"uniqueItems":true}`, func(v any) bool { _, ok := v.([]any); return ok }},
+		"minimum":       {`{"minimum":5,"maximum":6}`, func(v any) bool { f, ok := v.(float64); return ok && f >= 5 && f <= 6 }},
+		"int32 range":   {`{"minimum":5,"maximum":9,"format":"int32"}`, func(v any) bool { i, ok := v.(int64); return ok && i >= 5 && i <= 9 }},
+		"int64":         {`{"format":"int64"}`, func(v any) bool { _, ok := v.(int64); return ok }},
+		"double":        {`{"format":"double"}`, func(v any) bool { _, ok := v.(float64); return ok }},
+		"minLength":     {`{"minLength":3,"maxLength":3}`, func(v any) bool { s, ok := v.(string); return ok && utf8.RuneCountInString(s) == 3 }},
+		"no hint":       {`{}`, func(v any) bool { _, ok := v.(string); return ok }},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			source := New(DefaultBounds(), nil, 1).Compile(parseSchema(t, tc.schema, ""), InBody)
+			r := rand.New(rand.NewPCG(1, 2))
+			for iter := range 500 {
+				if v := source.Generate(r, iter); !tc.check(v) {
+					t.Fatalf("iteration %d: unexpected value %#v", iter, v)
+				}
+			}
+		})
+	}
+}
+
+func TestNullOnlyTravelsInBodies(t *testing.T) {
+	schema := parseSchema(t, `{"type":"object","required":["a"],"properties":{"a":{"type":"string","nullable":true}}}`, "")
+	nullable := parseSchema(t, `{"type":"integer","nullable":true}`, "")
+
+	for name, loc := range map[string]Location{"path": InPath, "query": InQuery, "header": InHeader} {
+		t.Run(name, func(t *testing.T) {
+			g := New(DefaultBounds(), nil, 1)
+			scalar, nested := g.Compile(nullable, loc), g.Compile(schema, loc)
+			r := rand.New(rand.NewPCG(1, 2))
+			for iter := range 2000 {
+				if scalar.Generate(r, iter) == nil {
+					t.Fatal("a null scalar was generated")
+				}
+				if nested.Generate(r, iter).(map[string]any)["a"] == nil {
+					t.Fatal("a nested null was generated")
+				}
+			}
+		})
+	}
+
+	g := New(DefaultBounds(), nil, 1)
+	source := g.Compile(nullable, InBody)
+	r := rand.New(rand.NewPCG(1, 2))
+	nulls := 0
+	for iter := range 2000 {
+		if source.Generate(r, iter) == nil {
+			nulls++
+		}
+	}
+	if nulls == 0 || nulls == 2000 {
+		t.Errorf("%d/2000 nulls in a body, want a mix", nulls)
 	}
 }

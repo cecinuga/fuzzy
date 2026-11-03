@@ -256,3 +256,43 @@ func TestInlineBranchesRequireTheDiscriminator(t *testing.T) {
 		t.Errorf("the branch must narrow the parent's property: %+v", prop)
 	}
 }
+
+func TestEffectiveTypeInference(t *testing.T) {
+	cases := map[string]string{
+		`{"type":"boolean","minimum":1}`:             "boolean", // a declared type always wins
+		`{"properties":{"a":{}}}`:                    "object",
+		`{"required":["a"]}`:                         "object",
+		`{"additionalProperties":{"type":"string"}}`: "object",
+		`{"additionalProperties":false}`:             "object",
+		`{"minProperties":1}`:                        "object",
+		`{"maxProperties":1}`:                        "object",
+		`{"items":{"type":"string"}}`:                "array",
+		`{"minItems":1}`:                             "array",
+		`{"maxItems":1}`:                             "array",
+		`{"uniqueItems":true}`:                       "array",
+		`{"format":"int32"}`:                         "integer",
+		`{"format":"int64","minimum":1}`:             "integer",
+		`{"format":"float"}`:                         "number",
+		`{"format":"double"}`:                        "number",
+		`{"minimum":1}`:                              "number",
+		`{"maximum":1}`:                              "number",
+		`{"multipleOf":2}`:                           "number",
+		`{"enum":[1,2]}`:                             "integer",
+		`{"enum":[1.5]}`:                             "number",
+		`{"enum":[true]}`:                            "boolean",
+		`{"enum":["a"]}`:                             "string",
+		`{"enum":[null,3]}`:                          "integer",
+		`{"enum":[[1]]}`:                             "array",
+		`{"enum":[{"a":1}]}`:                         "object",
+		`{"minLength":1}`:                            "string",
+		`{"pattern":"^a"}`:                           "string",
+		`{"format":"uuid"}`:                          "string",
+		`{}`:                                         "string",
+	}
+	for schema, want := range cases {
+		doc := mustParse(t, wrapPaths(`{"/a":{"get":{"parameters":[{"name":"x","in":"query","schema":`+schema+`}]}}}`, `{}`))
+		if got := doc.Operations[0].Parameters[0].Schema.EffectiveType(); got != want {
+			t.Errorf("%s: type %q, want %q", schema, got, want)
+		}
+	}
+}

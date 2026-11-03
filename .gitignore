@@ -1,6 +1,5 @@
 .vscode
-/fuzzy
-.pyc
 /main
 /fuzzy-report.md
 .venv
+prompt.txt

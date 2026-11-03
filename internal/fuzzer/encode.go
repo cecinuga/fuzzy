@@ -3,8 +3,11 @@ package fuzzer
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"maps"
+	"mime"
 	"mime/multipart"
+	"net/textproto"
 	"net/url"
 	"slices"
 	"strconv"
@@ -268,6 +271,15 @@ func encodeForm(fields map[string]*openapi.Parameter, v any) []byte {
 	return []byte(strings.Join(pairs, "&"))
 }
 
+// createNullPart declares the part as JSON: as plain text, "null" would just be a
+// four-letter string, and an empty part would be an empty one.
+func createNullPart(w *multipart.Writer, name string) (io.Writer, error) {
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": name}))
+	header.Set("Content-Type", "application/json")
+	return w.CreatePart(header)
+}
+
 func encodeMultipart(binary map[string]bool, v any) ([]byte, string, error) {
 	fields, ok := v.(map[string]any)
 	if !ok {
@@ -276,14 +288,22 @@ func encodeMultipart(binary map[string]bool, v any) ([]byte, string, error) {
 	var b bytes.Buffer
 	w := multipart.NewWriter(&b)
 	for _, key := range slices.Sorted(maps.Keys(fields)) {
-		part, err := w.CreateFormField(key)
-		if binary[key] {
+		var part io.Writer
+		var err error
+		content := scalar(fields[key])
+		switch {
+		case fields[key] == nil:
+			part, err = createNullPart(w, key)
+			content = "null"
+		case binary[key]:
 			part, err = w.CreateFormFile(key, key+".bin")
+		default:
+			part, err = w.CreateFormField(key)
 		}
 		if err != nil {
 			return nil, "", err
 		}
-		if _, err := part.Write([]byte(scalar(fields[key]))); err != nil {
+		if _, err := part.Write([]byte(content)); err != nil {
 			return nil, "", err
 		}
 	}
