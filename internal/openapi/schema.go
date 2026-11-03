@@ -276,9 +276,25 @@ func (s *Schema) unsatisfiable() bool {
 
 // merge folds src into dst keeping the tighter constraint on each keyword, so
 // that a value generated from dst also satisfies src. src is left untouched.
-func merge(dst, src *Schema) { mergeAt(dst, src, 0) }
+func merge(dst, src *Schema) { mergeAt(dst, src, 0, combineNow) }
 
-func mergeAt(dst, src *Schema, depth int) {
+func combineNow(own, prop *Schema, depth int) *Schema {
+	combined := own.mergeCopy()
+	mergeAt(combined, prop, depth, combineNow)
+	return combined
+}
+
+// mergeCopy returns a copy of s that can be merged into without altering s.
+func (s *Schema) mergeCopy() *Schema {
+	c := *s
+	c.Properties = maps.Clone(s.Properties)
+	c.PropertyOrder = slices.Clone(s.PropertyOrder)
+	c.Required = slices.Clone(s.Required)
+	return &c
+}
+
+// mergeAt is merge with a choice of how to combine the two definitions of a property.
+func mergeAt(dst, src *Schema, depth int, combine func(own, prop *Schema, depth int) *Schema) {
 	if dst.Type == "" {
 		dst.Type = src.Type
 	}
@@ -318,16 +334,12 @@ func mergeAt(dst, src *Schema, depth int) {
 		if dst.Properties == nil {
 			dst.Properties = make(map[string]*Schema, len(src.Properties))
 		}
-		for name, prop := range src.Properties {
+		for _, name := range sortedKeys(src.Properties) {
+			prop := src.Properties[name]
 			// Both constraints apply to a property defined twice. Recursive schemas
 			// could overlap forever, so past the limit the later definition wins.
 			if own := dst.Properties[name]; own != nil && own != prop && depth < maxMergeDepth {
-				combined := *own
-				combined.Properties = maps.Clone(own.Properties)
-				combined.PropertyOrder = slices.Clone(own.PropertyOrder)
-				combined.Required = slices.Clone(own.Required)
-				mergeAt(&combined, prop, depth+1)
-				prop = &combined
+				prop = combine(own, prop, depth+1)
 			}
 			dst.Properties[name] = prop
 		}
