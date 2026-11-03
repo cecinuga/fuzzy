@@ -1,6 +1,8 @@
-// Package openapi loads an OpenAPI 3.0 JSON document into a resolved model:
-// every local $ref is replaced by a pointer to its target and every allOf is
-// merged, so consumers only ever walk plain schemas (which may form cycles).
+// Package openapi loads an OpenAPI 3.0 or Swagger 2.0 JSON document into a resolved
+// model: every local $ref is replaced by a pointer to its target and every allOf is
+// merged, so consumers only ever walk plain schemas (which may form cycles). A
+// Swagger 2.0 document is converted to the OpenAPI 3.0 model first, so nothing past
+// Parse depends on which version a spec was written in.
 package openapi
 
 import (
@@ -10,6 +12,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,6 +20,9 @@ import (
 
 // Document is the subset of an OpenAPI 3.0 document that fuzzing needs.
 type Document struct {
+	// Format names the version the spec was written in, such as "openapi 3.0.3".
+	Format string `json:"-"`
+
 	OpenAPI    string               `json:"openapi"`
 	Info       Info                 `json:"info"`
 	Servers    []Server             `json:"servers"`
@@ -89,6 +95,9 @@ type Parameter struct {
 	Content  map[string]*MediaType `json:"content"`
 
 	ContentType string `json:"-"`
+	// Delimiter separates the members of an array when it isn't what the style says.
+	// Only Swagger 2.0's collectionFormat can ask for it.
+	Delimiter string `json:"-"`
 }
 
 type RequestBody struct {
@@ -110,6 +119,8 @@ type MediaType struct {
 type Encoding struct {
 	Style   string `json:"style"`
 	Explode *bool  `json:"explode"`
+
+	Delimiter string `json:"-"` // as in Parameter
 }
 
 // Load reads and resolves the JSON document stored at path.
@@ -121,9 +132,10 @@ func Load(path string) (*Document, error) {
 	return Parse(data)
 }
 
-// Parse decodes and resolves a JSON document. Only OpenAPI 3.0.x is accepted:
-// Swagger 2.0 and OpenAPI 3.1 describe schemas differently, and misreading them
-// would silently produce invalid requests.
+// Parse decodes and resolves a JSON document, routing it by the version it declares
+// to the decoder that understands it. Only OpenAPI 3.0.x and Swagger 2.0 are accepted:
+// OpenAPI 3.1 describes schemas differently, and misreading it would silently produce
+// invalid requests.
 func Parse(data []byte) (*Document, error) {
 	var probe struct {
 		OpenAPI string `json:"openapi"`
@@ -132,7 +144,15 @@ func Parse(data []byte) (*Document, error) {
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return nil, fmt.Errorf("spec is not valid JSON (YAML is not supported): %w", err)
 	}
-	if !strings.HasPrefix(probe.OpenAPI, "3.0") {
+
+	var doc *Document
+	var err error
+	switch {
+	case strings.HasPrefix(probe.OpenAPI, "3.0"):
+		doc, err = decodeOpenAPI(data, probe.OpenAPI)
+	case probe.OpenAPI == "" && probe.Swagger == "2.0":
+		doc, err = decodeSwagger(data)
+	default:
 		found := probe.OpenAPI
 		if found == "" && probe.Swagger != "" {
 			found = "swagger " + probe.Swagger
@@ -140,20 +160,17 @@ func Parse(data []byte) (*Document, error) {
 		if found == "" {
 			found = "missing version field"
 		}
-		return nil, fmt.Errorf("unsupported spec version (%s): OpenAPI 3.0.x is required", found)
+		return nil, fmt.Errorf("unsupported spec version (%s): OpenAPI 3.0.x or Swagger 2.0 is required", found)
+	}
+	if err != nil {
+		return nil, err
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.UseNumber() // int64 limits and enum members must not lose precision
-	var doc Document
-	if err := dec.Decode(&doc); err != nil {
-		return nil, fmt.Errorf("decode spec: %w", err)
-	}
 	if len(doc.Paths) == 0 {
 		return nil, errors.New("spec defines no paths")
 	}
 
-	r := newResolver(&doc)
+	r := newResolver(doc)
 	if err := r.resolveAll(); err != nil {
 		return nil, err
 	}
@@ -163,7 +180,17 @@ func Parse(data []byte) (*Document, error) {
 	if len(doc.Operations) == 0 {
 		return nil, errors.New("spec defines no operations")
 	}
-	return &doc, nil
+	return doc, nil
+}
+
+func decodeOpenAPI(data []byte, version string) (*Document, error) {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber() // int64 limits and enum members must not lose precision
+	doc := &Document{Format: "openapi " + version}
+	if err := dec.Decode(doc); err != nil {
+		return nil, fmt.Errorf("decode spec: %w", err)
+	}
+	return doc, nil
 }
 
 var pathParamRe = regexp.MustCompile(`\{([^{}]+)\}`)
@@ -189,6 +216,11 @@ func (d *Document) buildOperations(r *resolver) error {
 		} {
 			if entry.op == nil {
 				continue
+			}
+			// The path follows the remote's host in the URL, so without the slash
+			// it could extend that host or replace it.
+			if !strings.HasPrefix(path, "/") {
+				return fmt.Errorf("path %q must start with /", path)
 			}
 			op := entry.op
 			op.Method, op.Path = entry.method, path
@@ -246,8 +278,10 @@ func mergeParameters(path string, shared, own []*Parameter) ([]*Parameter, error
 	return out, nil
 }
 
-// serverBasePath returns the path of the first applicable server. The host is
-// discarded on purpose: the target is always the remote given on the command line.
+// serverBasePath returns the path of the first applicable server, empty or starting
+// with a slash. The host is discarded on purpose: the target is always the remote
+// given on the command line. A server URL may be relative, and the result follows
+// the remote's host in the URL, so what looks like a host here stays a path.
 func serverBasePath(levels ...[]Server) string {
 	for _, servers := range levels {
 		if len(servers) == 0 {
@@ -261,7 +295,7 @@ func serverBasePath(levels ...[]Server) string {
 		if err != nil {
 			return ""
 		}
-		return strings.TrimRight(u.Path, "/")
+		return strings.TrimRight(path.Clean("/"+u.Path), "/")
 	}
 	return ""
 }

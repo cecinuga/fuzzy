@@ -37,7 +37,7 @@ type overview struct {
 	Filter     string       `json:"statusFilter"`
 	Selection  selection    `json:"selection"`
 	// A string in JSON: seeds use all 64 bits, and many JSON readers keep numbers
-	// as doubles, which would round the seed and so fail to reproduce the run.
+	// as doubles, which would round the seed.
 	Seed            uint64 `json:"seed,string"`
 	Started         string `json:"started"`
 	Duration        string `json:"duration"`

@@ -193,7 +193,7 @@ func (r *resolver) follow(s *Schema) (*Schema, error) {
 		if !ok {
 			return nil, fmt.Errorf("unsupported schema reference %q: only %s* is allowed", s.Ref, schemaRefPrefix)
 		}
-		target := r.doc.Components.Schemas[strings.NewReplacer("~1", "/", "~0", "~").Replace(name)]
+		target := r.doc.Components.Schemas[pointerToken(name)]
 		if target == nil {
 			return nil, fmt.Errorf("unresolvable schema reference %q", s.Ref)
 		}
@@ -203,6 +203,11 @@ func (r *resolver) follow(s *Schema) (*Schema, error) {
 		s = target
 	}
 	return s, nil
+}
+
+// pointerToken decodes one segment of a JSON pointer.
+func pointerToken(s string) string {
+	return strings.NewReplacer("~1", "/", "~0", "~").Replace(s)
 }
 
 func (r *resolver) optional(s *Schema) (*Schema, error) {

@@ -128,7 +128,16 @@ func encodePath(p *openapi.Parameter, v any) string {
 		}
 		return ";" + name + "=" + strings.Join(flat, ",")
 	}
-	return strings.Join(flat, ",")
+	return strings.Join(flat, separator(p, ",", url.PathEscape))
+}
+
+// separator returns what goes between array members: the parameter's own delimiter,
+// escaped the way its value is, or else what its style says.
+func separator(p *openapi.Parameter, styled string, escape func(string) string) string {
+	if p.Delimiter == "" {
+		return styled
+	}
+	return escape(p.Delimiter)
 }
 
 // encodeQuery serializes a query parameter into already-escaped name=value pairs.
@@ -166,7 +175,7 @@ func encodeQuery(p *openapi.Parameter, v any) []string {
 	case "pipeDelimited":
 		sep = "%7C"
 	}
-	return []string{name + "=" + strings.Join(r.flat(false, url.QueryEscape), sep)}
+	return []string{name + "=" + strings.Join(r.flat(false, url.QueryEscape), separator(p, sep, url.PathEscape))}
 }
 
 // deepObject serializes v as name[key]=value. OAS only defines this style for
@@ -192,7 +201,8 @@ func deepObject(name string, v any, out []string) []string {
 // encodeHeader serializes a header parameter (always the simple style).
 func encodeHeader(p *openapi.Parameter, v any) string {
 	_, explode := styleOf(p)
-	return strings.Join(render(p, v).flat(explode, func(s string) string { return s }), ",")
+	asIs := func(s string) string { return s }
+	return strings.Join(render(p, v).flat(explode, asIs), separator(p, ",", asIs))
 }
 
 // encodeCookie serializes a cookie parameter as a single name=value pair.

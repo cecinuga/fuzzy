@@ -8,8 +8,8 @@ import (
 )
 
 // csvHeader names the columns as JSON names the same values. seed and interrupted
-// repeat on every row because a table has nowhere else to keep them, and a row must
-// stay reproducible, and a partial run recognizable, once it is imported elsewhere.
+// repeat on every row because a table has nowhere else to keep them, and a partial
+// run must stay recognizable once it is imported elsewhere.
 var csvHeader = []string{"operation", "endpoint", "status", "message", "input", "durationMs", "seed", "interrupted"}
 
 // writeCSV exports the results as one table, with one row per reported result. It

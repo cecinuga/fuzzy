@@ -2,7 +2,7 @@
 
 > **Your API's validation layer stops most fuzz traffic. Fuzzy's requests get through it.**
 >
-> Give Fuzzy an OpenAPI 3.0 spec and it sends schema-valid requests to every endpoint, so they reach the code behind your validators. No templates, no config, one binary.
+> Give Fuzzy an OpenAPI 3.0 or Swagger 2.0 spec and it sends schema-valid requests to every endpoint, so they reach the code behind your validators. No templates, no config, one binary.
 
 ![fuzzy with little bit of anxiety because the job is not done yet](assets/fuzzy.png)
 
@@ -44,7 +44,6 @@ The body matches the schema in every field, so it got past validation and reache
 * **Your choice of endpoints**: Include or exclude them by method, path pattern or tag, and preview the result with `--list`.
 * **Every place a value can go**: Path, query, header and cookie parameters, plus JSON, form, multipart, text, binary and XML bodies, SOAP envelopes included.
 * **Your payloads, where they fit**: Dictionary values are only used where the spec allows them. Anything they don't cover gets a random valid value.
-* **Failures you can reproduce**: Every report records its seed, and the same seed produces the same inputs at any concurrency.
 * **Reports for people and scripts**: Markdown, HTML or plain text to read, JSON or XML for CI, CSV for a spreadsheet, chosen by the file extension. Filter by status code without losing each endpoint's totals.
 * **Response times**: Each endpoint's minimum, mean, percentiles and maximum, and the time of every reported result.
 * **Messages you can read**: XML and HTML answers are reduced to their text, so a SOAP fault reads `faultcode: soap:Server; faultstring: db down`.
@@ -61,14 +60,13 @@ The body matches the schema in every field, so it got past validation and reache
 | Speed | 120,000 requests in 20.9 s, about 5,700 req/s |
 | Peak memory | 17 MB, at both 6,000 and 120,000 requests |
 | Requests rejected as invalid (`422`) | 0 of 120,000 |
-| Same seed at `-c 1` and `-c 50` | 600 of 600 inputs identical |
 | Binary size | 13 MB |
 
 These come from one Linux machine, fuzzing the in-memory `examples/crud` API on localhost with `-c 20 --status 5xx,err`. A real API will set its own pace. Results that pass `--status` stay in memory for the whole run, so a run that keeps every result uses more.
 
 ### Is It for You? 🦝
 
-Fuzzy fits if you have an OpenAPI 3.0.x spec in JSON and a disposable environment to test against. Keep in mind:
+Fuzzy fits if you have an OpenAPI 3.0.x or Swagger 2.0 spec in JSON and a disposable environment to test against. Keep in mind:
 
 - **It stays inside the spec**: Fuzzy doesn't send malformed requests on purpose, so it won't test how your API handles invalid input.
 - **It really calls everything**: `DELETE` and `PUT` included, with valid values, so it changes real data. [Never point it at production](#safety-and-best-practices-).
@@ -109,7 +107,7 @@ go build -o fuzzy ./cmd/fuzzy
 | DELETE /invoices/{invoice_id} | 100 | 204 ×3, 404 ×97 |
 | PUT /invoices/{invoice_id}/status | 100 | 200 ×1, 404 ×96, 409 ×3 |
 
-Your counts may differ: the seed fixes the inputs, but the answers depend on the server's state and the order the requests arrive in.
+Your counts may differ: the answers depend on the server's state and the order the requests arrive in.
 
 **Add it to CI.** Fuzzy exits with `0` whatever the API answered, so let the JSON report decide:
 ```bash
@@ -133,12 +131,12 @@ go build -o fuzzy ./cmd/fuzzy
 
 ## Usage 🦥
 
-Fuzzy needs two things: where the API lives and its OpenAPI 3.0 spec. Everything else is optional.
+Fuzzy needs two things: where the API lives and its OpenAPI 3.0 or Swagger 2.0 spec, which it tells apart by itself. Everything else is optional.
 
 ### Basic Syntax 🦩
 
 ```bash
-./fuzzy --remote <URL|FQDN|HOST:PORT> --spec <OPENAPI_JSON> [OPTIONS]
+./fuzzy --remote <URL|FQDN|HOST:PORT> --spec <SPEC_JSON> [OPTIONS]
 ```
 
 ### Choosing the Endpoints 🦔
@@ -171,13 +169,7 @@ Each line has an endpoint, followed by a tab and its tags if it has any, so `cut
 
 A selector that matches no endpoint of the spec stops the run with exit code `1` before any request is sent. Otherwise, a typo in an `--exclude` would quietly call the endpoints it was meant to protect.
 
-An endpoint gets the same inputs whichever others are left out, so you can replay one from a bigger run with its seed and the same spec and value flags:
-
-```bash
-./fuzzy --remote http://localhost:8080 --spec api.json --include 'GET /user/{id}' --seed 42
-```
-
-The report says which selectors were used and how many endpoints they left out. Endpoints left out don't appear under skipped endpoints, which are the ones that couldn't be fuzzed. Warnings still cover the whole spec, because every schema is compiled to keep the seed's inputs stable.
+The report says which selectors were used and how many endpoints they left out. Endpoints left out don't appear under skipped endpoints, which are the ones that couldn't be fuzzed. Warnings still cover the whole spec, because every schema is compiled.
 
 ### Choosing the Results 🐠
 
@@ -230,7 +222,7 @@ Every format but CSV has the same structure and the same information. XML uses t
 | Skipped endpoints | `skipped` |
 | Warnings | `warnings` |
 
-CSV exports only the results, with one row for each reported result, since the overview and the totals don't fit in a table of results. So an endpoint with nothing reported has no row, and `--status` matters more here. `seed` and `interrupted` repeat on every row, so a row can be reproduced, and a partial run recognized, after it's imported somewhere else:
+CSV exports only the results, with one row for each reported result, since the overview and the totals don't fit in a table of results. So an endpoint with nothing reported has no row, and `--status` matters more here. `seed` and `interrupted` repeat on every row, so a row keeps its seed, and a partial run can be recognized, after it's imported somewhere else:
 
 ```csv
 operation,endpoint,status,message,input,durationMs,seed,interrupted
@@ -303,7 +295,7 @@ GET /user/{id},GET /v1/user/427,500,"{""error"":""db timeout""}","{""path"":{""i
 A few values are written differently, to suit the format:
 
 - **`status`**: A number, or `null` in JSON when the request got no response. Every other format shows that case as `ERR`, and `statusCodes` counts it under the `ERR` key.
-- **`seed`**: A string in JSON, because seeds use 64 bits and many JSON tools would round such a large number, and a rounded seed doesn't reproduce the run.
+- **`seed`**: A string in JSON, because seeds use 64 bits and many JSON tools would round such a large number.
 - **`selection`**: Always there in JSON and XML. Markdown, text and HTML only show it when a run used `--include` or `--exclude`. CSV has no overview, so it doesn't show it.
 - **Empty values**: In JSON and XML, every key is always there. An empty list is `[]` or an empty element, and text that doesn't apply is empty, like `dictionary` when values are only random.
 - **Text from the server**: Markdown, HTML and text neutralize markup and control characters so a response can't break the document or a terminal, and the HTML page also forbids scripts. JSON and XML keep what the server really sent, apart from characters XML can't hold, so treat `message` as untrusted if you display it. CSV keeps it too, but puts a `'` before a cell starting with `=`, `+`, `-`, `@`, a tab or a carriage return, because a spreadsheet would run it as a formula.
@@ -366,7 +358,7 @@ With a dictionary, Fuzzy reads one value per line and works out the types each l
 | `localhost:8080` | `http://localhost:8080` |
 | `127.0.0.1:8080/v1` | `http://127.0.0.1:8080/v1` |
 
-If `--remote` has no path, the path of the spec's `servers` entry is added to it. If it has one, it's used as given. Either way the host always comes from `--remote`, so Fuzzy never calls the server named in the spec.
+If `--remote` has no path, the path of the spec's `servers` entry is added to it. If it has one, it's used as given. Either way the host always comes from `--remote`, so Fuzzy never calls the server named in the spec. A spec can't get around that: a path that doesn't start with `/` is refused with an error, and a relative `servers` URL, such as `.example.com`, only ever adds to the path.
 
 | `--remote` | `servers` in the spec | Request |
 |---|---|---|
@@ -461,7 +453,7 @@ Every flag has a short name with two dashes and a long name with one, as `--help
 | Flag | Description | Example |
 |------|-------------|---------|
 | `--rem`, `-remote` | API to fuzz: URL, FQDN or `host:port` (required) | `--remote localhost:8080` |
-| `--spc`, `-spec` | OpenAPI 3.0 spec in JSON format (required) | `--spec api.json` |
+| `--spc`, `-spec` | OpenAPI 3.0 or Swagger 2.0 spec in JSON format, detected automatically (required) | `--spec api.json` |
 | `--sta`, `-status` | Status codes in the report (default all) | `--status 200,404,5xx,400-403,err` |
 | `--icl`, `-include` | Only fuzz the endpoints matching this selector, repeatable | `--include 'GET /users/*'` |
 | `--exc`, `-exclude` | Don't fuzz the endpoints matching this selector, even if included; repeatable | `--exclude DELETE` |
@@ -483,7 +475,7 @@ Every flag has a short name with two dashes and a long name with one, as `--help
 | `--log`, `-log` | Append a line for every request to this file (default no log) | `--log run.log` |
 | `--H`, `-header` | Header for every request, repeatable; overrides generated ones | `-H "Authorization: Bearer abc"` |
 | `--k`, `-insecure` | Skip TLS certificate verification (useful for self-signed certs) | `-k` |
-| `--sd`, `-seed` | Seed to reproduce a run's inputs (default random, also for `0`; printed in the report) | `--seed 42` |
+| `--sd`, `-seed` | Seed of the run's random values (default random, also for `0`; printed in the report) | `--seed 42` |
 
 ### Help, Version and Shell Completion 🦭
 
@@ -509,7 +501,8 @@ Older spellings still work, so existing scripts don't need to change: `-remote` 
 - **Enums**: Values come only from the list, ahead of the dictionary and random values. With `nullable: true`, `null` is sent only if the list includes it.
 - **Schemas Without a Type**: Fuzzy infers it from the other keywords: `properties` or `required` mean `object`, `items` or `minItems` mean `array`, `format: int64` means `integer`, `minimum` means `number`. With no hint at all, it uses `string`.
 - **Null Values**: `null` is only sent in JSON and multipart bodies, where a multipart `null` is a part with `Content-Type: application/json`. Parameters, form bodies, text bodies, binary bodies and XML bodies can't represent it, so they always get a real value.
-- **Spec Format**: Only OpenAPI 3.0.x in JSON. Swagger 2.0, OpenAPI 3.1 and YAML are refused with an error, and so are `$ref`s that point outside the document.
+- **Spec Format**: OpenAPI 3.0.x and Swagger 2.0 in JSON. There is no flag for it: Fuzzy reads the document's `openapi` or `swagger` field, and writes what it found to the `--log` file. OpenAPI 3.1, other versions and YAML are refused with an error, and so are `$ref`s that point outside the document.
+- **Swagger 2.0**: A spec gets the same requests whichever version it's written in, apart from inherited discriminators, which only Swagger 2.0 specs get. `basePath` works like a server's path, and `host` and `schemes` are ignored. A `body` parameter is sent in the media types of `consumes`, or as JSON if there are none. `formData` parameters become a form body, or a multipart one if there is a `file`. Arrays follow `collectionFormat`, which defaults to one comma-separated value. A reference to a schema with a `discriminator` gets one of the definitions extending it, with the property set to that definition's name. Only the most derived definitions are used, because a base is often abstract. If the property has an `enum` that doesn't list those names, its values are used instead.
 - **Progress and Exit Codes**: In a terminal, a status bar on stderr updates in place during the run and disappears when it ends. It drops details such as the speed when the terminal is narrow. Above it, the endpoints change color: red when not tested yet, yellow while sending requests, white once all of them are sent. The list stays on screen after the run; if it doesn't fit, the endpoints still in progress come first and the last line counts the rest. With `NO_COLOR` set or on Windows there is only the bar. When stderr is redirected, or with `TERM=dumb`, Fuzzy prints a plain `[+] 1200/6000 requests` line every 5 seconds instead. The `5xx` and `err` counters cover every request, whatever `--status` keeps for the report. Fuzzy exits with `0` when the run completes, whatever the API answered, `1` if it can't run (for example, an unreadable spec) and `2` for invalid arguments.
 
 ### Known Limitations 🐙
@@ -517,7 +510,8 @@ Older spellings still work, so existing scripts don't need to change: `-remote` 
 - **Other Media Types**: An operation whose required body is only available in a media type Fuzzy can't build, such as `application/protobuf`, is skipped and listed in the report. If the body is optional, the operation is called without it.
 - **XML Schemas and WSDL**: Fuzzy only reads the OpenAPI spec, so a rule that only an XSD or a WSDL states isn't known to it, and an `xsi:nil` value is never sent.
 - **Overlapping `oneOf`**: When branches overlap in the spec itself (`{}` can match two of them), a value can match more than one. Branches that differ by their `required` fields are told apart.
-- **Unsupported Keywords and Patterns**: `not` and discriminators inherited through `allOf` are ignored. Patterns must use Go regular expression syntax, so one with a lookahead is ignored and listed under the report's warnings.
+- **Unsupported Keywords and Patterns**: `not` and, in OpenAPI 3.0, discriminators inherited through `allOf` are ignored. Patterns must use Go regular expression syntax, so one with a lookahead is ignored and listed under the report's warnings.
+- **Swagger 2.0 Arrays and Nulls**: An array nested in another array ignores the inner `collectionFormat` and is written as JSON, and so is an array field in a multipart body. `x-nullable` is ignored, so these specs never get a `null` from it.
 - **Formats and Lengths**: Values generated for a `format` such as `email` or `uuid` follow the format, not `maxLength` or `--string-max`.
 
 ---
@@ -539,8 +533,7 @@ Fuzzy really changes or deletes data, so only test systems you own or have expli
 1. **Isolate the Target**: Run it against a disposable environment, such as a container or a VM, with limits on its CPU and memory. Don't fuzz sensitive production data.
 2. **Start Small**: Begin with a low `-n`, a small set of test values and a few endpoints (check them with `--list`), then expand gradually. Lower `-c` to avoid overwhelming the target.
 3. **Focus the Report**: Use `--status 5xx,err` to see what went wrong.
-4. **Keep the Seed**: It's in every report, and it reproduces the inputs of the run.
-5. **Use Real Inputs**: Real-world values in your dictionary improve the results. Anonymize sensitive data first.
+4. **Use Real Inputs**: Real-world values in your dictionary improve the results. Anonymize sensitive data first.
 
 ---
 
@@ -556,7 +549,7 @@ fuzzy/
 ├── examples/crud/       # Local CRUD invoice API to try Fuzzy on
 └── internal/
     ├── config/          # Flags and their validation
-    ├── openapi/         # Loads the spec, resolves $ref and allOf
+    ├── openapi/         # Loads the spec, converts Swagger 2.0, resolves $ref and allOf
     ├── generator/       # Turns schemas into valid values, dictionary included
     ├── fuzzer/          # Encodes requests, runs the worker pool, filters statuses
     ├── progress/        # Shows a run's progress: status bar or plain lines

@@ -82,7 +82,7 @@ func (f *Flags) Register(fs *pflag.FlagSet) {
 
 	fs.SetNormalizeFunc(normalizeFlagName)
 	fs.StringVar(&f.remote, "remote", "", "API to fuzz: `url`, FQDN or host:port (required)")
-	fs.StringVar(&f.spec, "spec", "", "OpenAPI 3.0 spec, JSON `file` (required)")
+	fs.StringVar(&f.spec, "spec", "", "OpenAPI 3.0 or Swagger 2.0 spec, JSON `file` (required)")
 	fs.StringVar(&f.status, "status", "", "status `codes` in the report, e.g. 200,404,5xx,400-404,err (default all)")
 	// Arrays, not slices: a slice would split selectors such as 'GET,POST /a' on
 	// their commas.
@@ -107,7 +107,7 @@ func (f *Flags) Register(fs *pflag.FlagSet) {
 	// An array, not a slice: a slice would split header values on their commas.
 	fs.StringArrayVarP(&f.headers, "header", "H", nil, "`header` for every request, 'Name: value' (repeatable)")
 	fs.BoolVarP(&f.insecure, "insecure", "k", false, "skip TLS certificate verification")
-	fs.Uint64Var(&f.seed, "seed", 0, "seed to reproduce a run's inputs (default random)")
+	fs.Uint64Var(&f.seed, "seed", 0, "seed of the run's random values (default random)")
 }
 
 // Listing reports whether --list was given.

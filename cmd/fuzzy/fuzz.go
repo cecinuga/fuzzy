@@ -80,7 +80,7 @@ func fuzz(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer) err
 	fmt.Fprintf(stdout, "[+] fuzzing %s endpoints of %s, %d requests each (seed %d)\n", count, cfg.Remote, requests, cfg.Seed)
 
 	log.Info("run started",
-		"target", cfg.Remote.Redacted(), "spec", cfg.SpecPath, "seed", cfg.Seed, "endpoints", len(targets),
+		"target", cfg.Remote.Redacted(), "spec", cfg.SpecPath, "format", doc.Format, "seed", cfg.Seed, "endpoints", len(targets),
 		"requests", requests, "concurrency", cfg.Concurrency, "timeout", cfg.Timeout)
 	for _, s := range skipped {
 		log.Warn("endpoint skipped", "endpoint", s.Op.Method+" "+s.Op.Path, "reason", s.Reason)

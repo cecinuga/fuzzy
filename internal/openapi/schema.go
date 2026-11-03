@@ -157,6 +157,15 @@ type Discriminator struct {
 	Mapping      map[string]string `json:"mapping"`
 }
 
+// UnmarshalJSON also accepts Swagger 2.0's form, a bare property name.
+func (d *Discriminator) UnmarshalJSON(data []byte) error {
+	if err := json.Unmarshal(data, &d.PropertyName); err == nil {
+		return nil
+	}
+	type plain Discriminator
+	return json.Unmarshal(data, (*plain)(d))
+}
+
 // EffectiveType returns the declared type or infers it from the other keywords.
 // With no hint at all, the schema accepts anything and is treated as a string.
 func (s *Schema) EffectiveType() string {

@@ -939,3 +939,32 @@ func TestShortRunHasFewerCheckpoints(t *testing.T) {
 		}
 	}
 }
+
+// The URL is built by appending to the remote, so an operation that reaches Compile
+// with a path or base path that doesn't start with a slash could change the host.
+func TestCompileSkipsWhatWouldLeaveTheRemoteHost(t *testing.T) {
+	cases := map[string]openapi.Operation{
+		"userinfo path":     {Method: "GET", Path: "@evil.example/x"},
+		"host suffix path":  {Method: "GET", Path: ".evil.example/x"},
+		"template path":     {Method: "GET", Path: "{id}/x"},
+		"userinfo base":     {Method: "GET", Path: "/x", BasePath: "@evil.example"},
+		"host suffix base":  {Method: "GET", Path: "/x", BasePath: ".evil.example"},
+		"another port base": {Method: "GET", Path: "/x", BasePath: ":9999"},
+	}
+	remote, err := url.Parse("http://api.victim.test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, op := range cases {
+		t.Run(name, func(t *testing.T) {
+			doc := &openapi.Document{Operations: []*openapi.Operation{&op, {Method: "GET", Path: "/kept"}}}
+			targets, skipped := Compile(doc, generator.New(generator.DefaultBounds(), nil, 1), remote)
+			if len(skipped) != 1 || skipped[0].Op != &op || !strings.Contains(skipped[0].Reason, "--remote") {
+				t.Errorf("skipped = %+v", skipped)
+			}
+			if len(targets) != 1 || targets[0].Op.Path != "/kept" {
+				t.Errorf("targets = %+v", targets)
+			}
+		})
+	}
+}

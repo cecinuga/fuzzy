@@ -47,7 +47,8 @@ type Skipped struct {
 
 // Compile prepares every operation of doc. A remote without a path takes the
 // base path from the spec's servers; a remote with a path is used as given,
-// since the user has then already said where the API lives.
+// since the user has then already said where the API lives. Whatever the spec
+// says, an operation that wouldn't go to the remote's host is never called.
 func Compile(doc *openapi.Document, gen *generator.Generator, remote *url.URL) ([]*Target, []Skipped) {
 	root := strings.TrimRight(remote.String(), "/")
 	useBasePath := strings.Trim(remote.Path, "/") == ""
@@ -58,6 +59,11 @@ func Compile(doc *openapi.Document, gen *generator.Generator, remote *url.URL) (
 		t := &Target{Op: op, index: len(targets), baseURL: root}
 		if useBasePath {
 			t.baseURL += op.BasePath
+		}
+		// Past a slash, nothing that gets appended to root can change its host.
+		if !strings.HasPrefix(t.baseURL[len(root):]+op.Path, "/") {
+			skipped = append(skipped, Skipped{op, "its URL wouldn't stay on the host of --remote"})
+			continue
 		}
 		for _, p := range op.Parameters {
 			t.params = append(t.params, targetParam{p, gen.Compile(p.Schema, locationOf(p))})
@@ -105,7 +111,7 @@ func compileBody(op *openapi.Operation, gen *generator.Generator) (*targetBody, 
 	if bestKind == bodyForm {
 		body.fields = map[string]*openapi.Parameter{}
 		for name, enc := range media.Encoding {
-			body.fields[name] = &openapi.Parameter{Name: name, In: "query", Style: enc.Style, Explode: enc.Explode}
+			body.fields[name] = &openapi.Parameter{Name: name, In: "query", Style: enc.Style, Explode: enc.Explode, Delimiter: enc.Delimiter}
 		}
 	}
 	if bestKind == bodyMultipart {

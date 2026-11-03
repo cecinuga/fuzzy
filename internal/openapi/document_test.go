@@ -22,7 +22,7 @@ func wrapPaths(paths, components string) string {
 func TestParseRejectsUnsupportedDocuments(t *testing.T) {
 	cases := map[string]struct{ spec, want string }{
 		"yaml":       {"openapi: 3.0.0", "not valid JSON"},
-		"swagger 2":  {`{"swagger":"2.0","paths":{}}`, "swagger 2.0"},
+		"swagger 1":  {`{"swagger":"1.2","paths":{}}`, "swagger 1.2"},
 		"openapi31":  {`{"openapi":"3.1.0","paths":{}}`, "3.1.0"},
 		"no version": {`{"paths":{}}`, "missing version"},
 		"no paths":   {`{"openapi":"3.0.0","paths":{}}`, "no paths"},
@@ -357,5 +357,56 @@ func TestVariantsKeepPropertyOrderApart(t *testing.T) {
 		if got := strings.Join(variants[i].OrderedProperties(), ","); got != want {
 			t.Errorf("variant %d order = %s, want %s", i, got, want)
 		}
+	}
+}
+
+func TestAPathWithoutALeadingSlashIsRefused(t *testing.T) {
+	specs := map[string]string{
+		"openapi":  `{"openapi":"3.0.0","paths":{"@127.0.0.1:1/x":{"get":{}}}}`,
+		"template": `{"openapi":"3.0.0","paths":{"{id}/x":{"get":{}}}}`,
+		"swagger":  `{"swagger":"2.0","paths":{"@127.0.0.1:1/x":{"get":{}}}}`,
+	}
+	for name, spec := range specs {
+		t.Run(name, func(t *testing.T) {
+			if _, err := Parse([]byte(spec)); err == nil || !strings.Contains(err.Error(), "must start with /") {
+				t.Errorf("err = %v", err)
+			}
+		})
+	}
+}
+
+// OpenAPI allows extensions among the paths, and they aren't paths to call.
+func TestPathExtensionsAreIgnored(t *testing.T) {
+	doc := mustParse(t, `{"openapi":"3.0.0","paths":{"x-internal":{},"/a":{"get":{}}}}`)
+	if len(doc.Operations) != 1 || doc.Operations[0].Path != "/a" {
+		t.Errorf("operations = %+v", doc.Operations)
+	}
+}
+
+func TestBasePathNeverRunsIntoTheHost(t *testing.T) {
+	cases := map[string]struct{ server, want string }{
+		"host suffix":   {`{"url":".evil.example"}`, "/.evil.example"},
+		"userinfo":      {`{"url":"@evil.example/v1"}`, "/@evil.example/v1"},
+		"no scheme":     {`{"url":"evil.example/v1"}`, "/evil.example/v1"},
+		"relative":      {`{"url":"./v1/"}`, "/v1"},
+		"parent":        {`{"url":"../v1"}`, "/v1"},
+		"variable":      {`{"url":"{h}/v1","variables":{"h":{"default":"@evil.example"}}}`, "/@evil.example/v1"},
+		"host dropped":  {`{"url":"https://evil.example/v1"}`, "/v1"},
+		"no scheme url": {`{"url":"//evil.example/v1"}`, "/v1"},
+		"root":          {`{"url":"/"}`, ""},
+		"only a host":   {`{"url":"https://evil.example"}`, ""},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			doc := mustParse(t, `{"openapi":"3.0.0","servers":[`+tc.server+`],"paths":{"/a":{"get":{}}}}`)
+			if got := doc.Operations[0].BasePath; got != tc.want {
+				t.Errorf("base path %q, want %q", got, tc.want)
+			}
+		})
+	}
+
+	doc := mustParse(t, `{"swagger":"2.0","basePath":".evil.example","paths":{"/a":{"get":{}}}}`)
+	if got := doc.Operations[0].BasePath; got != "/.evil.example" {
+		t.Errorf("swagger base path %q", got)
 	}
 }

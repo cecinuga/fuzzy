@@ -13,8 +13,8 @@ import (
 )
 
 const longDescription = `Fuzzy sends schema-valid requests, with random or dictionary values, to every
-endpoint of an OpenAPI 3.0 spec and writes what came back to a report: Markdown,
-JSON, plain text, CSV, XML or HTML.
+endpoint of an OpenAPI 3.0 or Swagger 2.0 spec and writes what came back to a
+report: Markdown, JSON, plain text, CSV, XML or HTML.
 
 Fuzzy calls every operation with valid values, DELETE and PUT included, so it
 really changes or deletes data. Only run it against disposable or local targets
@@ -52,7 +52,7 @@ func newRootCommand() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "fuzzy -remote <url> -spec <file> [flags]",
-		Short:   "Fuzz an HTTP API from its OpenAPI 3.0 spec",
+		Short:   "Fuzz an HTTP API from its OpenAPI 3.0 or Swagger 2.0 spec",
 		Long:    longDescription,
 		Example: examples,
 		Version: version(),

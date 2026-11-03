@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -640,5 +641,134 @@ func TestReportInAReadOnlyDirectoryIsStillWritten(t *testing.T) {
 	}
 	if state := readReportState(t, report); state.Interrupted || state.Overview.RequestsSent != 20 {
 		t.Errorf("report = %+v", state)
+	}
+}
+
+// The same command line fuzzes either version of a spec: the document says which it is.
+func TestSwaggerSpecIsDetectedAutomatically(t *testing.T) {
+	var mu sync.Mutex
+	var requests []string
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		defer mu.Unlock()
+		requests = append(requests, r.Method+" "+r.URL.Path)
+		bodies = append(bodies, string(body))
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "swagger.json")
+	os.WriteFile(spec, []byte(`{"swagger":"2.0","info":{"title":"Legacy","version":"7"},
+		"host":"must-not-be-called.invalid","basePath":"/api",
+		"definitions":{"Item":{"type":"object","required":["id"],"properties":{"id":{"type":"integer","minimum":1,"maximum":3}}}},
+		"paths":{"/items":{"post":{"parameters":[{"name":"item","in":"body","required":true,"schema":{"$ref":"#/definitions/Item"}}]}}}
+	}`), 0o600)
+	report := filepath.Join(dir, "r.json")
+	logFile := filepath.Join(dir, "run.log")
+
+	code, _, stderr := runCLI(t, "--remote", srv.URL, "--spec", spec, "-n", "5", "--format", "json", "-o", report, "--log", logFile)
+	if code != exitOK {
+		t.Fatalf("exit %d: %s", code, stderr)
+	}
+	if len(requests) != 5 {
+		t.Fatalf("requests = %v", requests)
+	}
+	for i, got := range requests {
+		if got != "POST /api/items" {
+			t.Errorf("request = %q, want the base path under the given remote", got)
+		}
+		if !strings.Contains(bodies[i], `"id":`) {
+			t.Errorf("body = %q", bodies[i])
+		}
+	}
+	written, err := os.ReadFile(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Legacy", "/items", "item"} {
+		if !strings.Contains(string(written), want) {
+			t.Errorf("report misses %q:\n%s", want, written)
+		}
+	}
+	logged, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logged), `format="swagger 2.0"`) {
+		t.Errorf("the log must say how the spec was read:\n%s", logged)
+	}
+}
+
+func TestUnsupportedSpecVersionIsARunFailure(t *testing.T) {
+	spec := filepath.Join(t.TempDir(), "spec.json")
+	os.WriteFile(spec, []byte(`{"swagger":"1.2","paths":{"/a":{"get":{}}}}`), 0o600)
+	code, _, stderr := runCLI(t, "--remote", "http://127.0.0.1:1", "--spec", spec)
+	if code != 1 {
+		t.Errorf("exit %d, want 1: a spec that can't be read is a run failure", code)
+	}
+	if !strings.Contains(stderr, "swagger 1.2") || !strings.Contains(stderr, "Swagger 2.0 is required") {
+		t.Errorf("stderr = %q", stderr)
+	}
+}
+
+// What the spec says can't send a request, or the token that goes with it, to any
+// host but the one of --remote.
+func TestASpecCannotRedirectTheTraffic(t *testing.T) {
+	var mu sync.Mutex
+	var leaked []string
+	other := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		leaked = append(leaked, r.Method+" "+r.URL.String()+" "+r.Header.Get("Authorization"))
+	}))
+	defer other.Close()
+	otherHost := strings.TrimPrefix(other.URL, "http://")
+
+	var requests []string
+	remote := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		requests = append(requests, r.URL.Path)
+	}))
+	defer remote.Close()
+
+	cases := []struct {
+		name, spec string
+		code       int
+		want       []string
+	}{
+		{"path", `{"openapi":"3.0.0","paths":{"@` + otherHost + `/x":{"get":{}}}}`, exitFailure, nil},
+		{"swagger path", `{"swagger":"2.0","paths":{"@` + otherHost + `/x":{"get":{}}}}`, exitFailure, nil},
+		{"server", `{"openapi":"3.0.0","servers":[{"url":"@` + otherHost + `"}],"paths":{"/x":{"get":{}}}}`, exitOK, []string{"/x"}},
+		{"server url", `{"openapi":"3.0.0","servers":[{"url":"` + other.URL + `/v1"}],"paths":{"/x":{"get":{}}}}`, exitOK, []string{"/v1/x"}},
+		{"swagger base path", `{"swagger":"2.0","basePath":"@` + otherHost + `","paths":{"/x":{"get":{}}}}`, exitOK, []string{"/x"}},
+		{"swagger host", `{"swagger":"2.0","host":"` + otherHost + `","paths":{"/x":{"get":{}}}}`, exitOK, []string{"/x"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			mu.Lock()
+			requests, leaked = nil, nil
+			mu.Unlock()
+			dir := t.TempDir()
+			spec := filepath.Join(dir, "spec.json")
+			if err := os.WriteFile(spec, []byte(tc.spec), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			code, _, stderr := runCLI(t, "--remote", remote.URL, "--spec", spec, "-n", "1",
+				"-H", "Authorization: Bearer SECRET-TOKEN", "-o", filepath.Join(dir, "r.md"))
+			if code != tc.code {
+				t.Fatalf("exit %d, want %d: %s", code, tc.code, stderr)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(leaked) != 0 {
+				t.Errorf("reached another host: %v", leaked)
+			}
+			if !slices.Equal(requests, tc.want) {
+				t.Errorf("remote received %v, want %v", requests, tc.want)
+			}
+		})
 	}
 }
