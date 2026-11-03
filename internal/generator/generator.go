@@ -45,6 +45,11 @@ type Generator struct {
 	offsets  *rand.Rand
 	memo     map[memoKey]*lazyNode
 	warnings []string
+
+	// What fits a set of constraints, by those constraints: a big spec repeats
+	// the same few, and a list per schema costs memory for every value.
+	fitting map[any][]any
+	views   map[any]*view
 }
 
 type memoKey struct {
@@ -60,11 +65,19 @@ func New(bounds Bounds, dict *Dictionary, seed uint64) *Generator {
 		dict:    dict,
 		offsets: rand.New(rand.NewPCG(seed, 0x667a7a79)),
 		memo:    map[memoKey]*lazyNode{},
+		fitting: map[any][]any{},
+		views:   map[any]*view{},
 	}
 }
 
-// Warnings lists the schema constraints that could not be honored.
-func (g *Generator) Warnings() []string { return g.warnings }
+// Warnings lists the schema constraints that could not be honored, and any
+// failure to read the dictionary, which a run can only meet once it started.
+func (g *Generator) Warnings() []string {
+	if err := g.dict.Err(); err != nil {
+		return append(slices.Clip(g.warnings), fmt.Sprintf("dictionary values were replaced by random ones: %v", err))
+	}
+	return g.warnings
+}
 
 // Source produces values for one schema.
 type Source struct{ root node }
@@ -191,6 +204,40 @@ func filter[T any](vals []T, keep func(T) bool) []any {
 	return out
 }
 
+// pickFitting walks the dictionary values that pass fits, or returns fallback
+// when none does. key identifies the constraints fits checks. Schemas sharing
+// them share the list but each draws its own offset, so the seed decides the
+// same values as if every schema had its own.
+func pickFitting[T any](g *Generator, key any, vals []T, parse func(string) (T, bool), fits func(T) bool, fallback node) node {
+	if g.dict.lines != nil {
+		v, ok := g.views[key]
+		if !ok {
+			v = g.dict.lines.view(func(line string) bool {
+				value, ok := parse(line)
+				return ok && fits(value)
+			}, func(line string) any {
+				value, _ := parse(line)
+				return value
+			})
+			g.views[key] = v
+		}
+		if v.size() == 0 {
+			return fallback
+		}
+		return viewNode{view: v, offset: g.offsets.IntN(v.size()), fallback: fallback}
+	}
+
+	list, ok := g.fitting[key]
+	if !ok {
+		list = filter(vals, fits)
+		g.fitting[key] = list
+	}
+	if len(list) == 0 {
+		return fallback
+	}
+	return g.pick(list)
+}
+
 // --- integers ---------------------------------------------------------------
 
 func (g *Generator) integer(s *openapi.Schema) node {
@@ -220,17 +267,19 @@ func (g *Generator) integer(s *openapi.Schema) node {
 		step = max(openapi.Int(s.MultipleOf, true), 1)
 	}
 
-	if g.dict != nil {
-		fits := filter(g.dict.Ints, func(v int64) bool {
-			return (!lo.set || v >= lo.value) && (!hi.set || v <= hi.value) && v%step == 0
-		})
-		if len(fits) > 0 {
-			return g.pick(fits)
-		}
-	}
-
 	from, to := effectiveRange(lo, hi, g.bounds.IntMin, g.bounds.IntMax)
-	return intNode{lo: from, hi: to, step: step}
+	random := intNode{lo: from, hi: to, step: step}
+
+	if g.dict != nil {
+		key := struct {
+			lo, hi limit[int64]
+			step   int64
+		}{lo, hi, step}
+		return pickFitting(g, key, g.dict.Ints, parseInt, func(v int64) bool {
+			return (!lo.set || v >= lo.value) && (!hi.set || v <= hi.value) && v%step == 0
+		}, random)
+	}
+	return random
 }
 
 type intNode struct{ lo, hi, step int64 }
@@ -300,17 +349,19 @@ func (g *Generator) number(s *openapi.Schema) node {
 		step = openapi.Float(s.MultipleOf)
 	}
 
-	if g.dict != nil {
-		fits := filter(g.dict.Floats, func(v float64) bool {
-			return (!lo.set || v >= lo.value) && (!hi.set || v <= hi.value) && isMultiple(v, step)
-		})
-		if len(fits) > 0 {
-			return g.pick(fits)
-		}
-	}
-
 	from, to := effectiveRange(lo, hi, g.bounds.FloatMin, g.bounds.FloatMax)
-	return floatNode{lo: from, hi: to, step: step}
+	random := floatNode{lo: from, hi: to, step: step}
+
+	if g.dict != nil {
+		key := struct {
+			lo, hi limit[float64]
+			step   float64
+		}{lo, hi, step}
+		return pickFitting(g, key, g.dict.Floats, parseFloat, func(v float64) bool {
+			return (!lo.set || v >= lo.value) && (!hi.set || v <= hi.value) && isMultiple(v, step)
+		}, random)
+	}
+	return random
 }
 
 func isMultiple(v, step float64) bool {
@@ -377,24 +428,29 @@ func (g *Generator) str(s *openapi.Schema, loc Location) node {
 		}
 	}
 
-	if g.dict != nil {
-		fits := filter(g.dict.Strings, func(v string) bool {
-			return fitsLength(v, lo, hi) && (re == nil || re.MatchString(v)) && fitsFormat(v, s.Format) && fitsLocation(v, loc)
-		})
-		if len(fits) > 0 {
-			return g.pick(fits)
-		}
-	}
-
 	from, to := effectiveRange(lo, hi, g.bounds.StringMin, g.bounds.StringMax)
-	n := stringNode{lo: max(from, 0), hi: max(to, 0), alphabet: g.alphabet(loc), schemaLo: lo, schemaHi: hi}
+	random := stringNode{lo: max(from, 0), hi: max(to, 0), alphabet: g.alphabet(loc), schemaLo: lo, schemaHi: hi}
 	switch {
 	case pattern != nil:
-		n.pattern = pattern
+		random.pattern = pattern
 	default:
-		n.format = formatGenerators[s.Format]
+		random.format = formatGenerators[s.Format]
 	}
-	return n
+
+	if g.dict != nil {
+		key := struct {
+			lo, hi          limit[int]
+			pattern, format string
+			loc             Location
+		}{lo: lo, hi: hi, format: s.Format, loc: loc}
+		if re != nil {
+			key.pattern = re.String()
+		}
+		return pickFitting(g, key, g.dict.Strings, parseString, func(v string) bool {
+			return fitsLength(v, lo, hi) && (re == nil || re.MatchString(v)) && fitsFormat(v, s.Format) && fitsLocation(v, loc)
+		}, random)
+	}
+	return random
 }
 
 func (g *Generator) alphabet(loc Location) []rune {
@@ -707,6 +763,20 @@ type pickNode struct {
 
 func (n pickNode) generate(c ctx) any {
 	return n.vals[(c.iter+n.offset)%len(n.vals)]
+}
+
+// viewNode is a pickNode over a wordlist on disk.
+type viewNode struct {
+	view     *view
+	offset   int
+	fallback node // keeps the request valid if the file can't be read any more
+}
+
+func (n viewNode) generate(c ctx) any {
+	if v, ok := n.view.at((c.iter + n.offset) % n.view.size()); ok {
+		return v
+	}
+	return n.fallback.generate(c)
 }
 
 type variantNode []node

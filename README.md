@@ -355,6 +355,10 @@ With a dictionary, Fuzzy reads one value per line and works out the types each l
 ./fuzzy --remote http://localhost:8080 --spec api.json --dict values.txt
 ```
 
+A dictionary above 25 MiB stays on disk: Fuzzy indexes it, and the workers read only the pieces they need. In our tests, a run with a 400 MB file peaked at about 60 MB of memory, where loading it took several GB. A seed gives the same inputs either way, with one difference: a file this big keeps its duplicate lines, because finding them takes memory for every line. They are sent more than once and count towards the default `-n`, so run `sort -u` on the file first if that matters. Don't change the file during a run: Fuzzy can't always notice, and when a value can't be read it sends a random valid one and adds a warning to the report.
+
+The default `-n` follows the size of the dictionary, for each endpoint, and every result that passes `--status` stays in memory until the report is written. So a run that could keep a million results or more starts with a warning and an estimate of the memory. To avoid that, use `--status 5xx,err` or a lower `-n`.
+
 ### Where the Requests Go 🐳
 
 `--remote` can be a full URL, an FQDN or a `host:port`. Without a scheme, Fuzzy uses `https` when there is no port or the port is 443, and `http` for any other port. Write the scheme yourself to choose differently, for example `http://api.example.com`.
