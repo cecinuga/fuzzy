@@ -141,7 +141,7 @@ func hostileReport(message string) Report {
 const hostileMessage = "<script>alert(1)</script></td>\n## Forged\nForged\n-----\n\x1b[31m\u202e&amp; \"q\" ]]>"
 
 func TestHTMLNeutralizesHostileText(t *testing.T) {
-	out := writeString(t, FormatHTML, hostileReport(hostileMessage))
+	out := withoutPageScript(t, writeString(t, FormatHTML, hostileReport(hostileMessage)))
 	for _, banned := range []string{"<script", "<img", "\x1b", "\u202e"} {
 		if strings.Contains(out, banned) {
 			t.Errorf("found %q:\n%s", banned, out)

@@ -97,6 +97,11 @@ The extension of `-o` picks the format (`.md`, `.html`, `.txt`, `.json`, `.xml`,
 - `input` is always a JSON object as a string, keyed by `path`, `query`, `header`, `cookie`, `body` (use `jq '.input | fromjson'`).
 - In JSON, a missing response is `"status": null` (`ERR` elsewhere) and `seed` is a string, since 64-bit numbers get rounded by many tools.
 - Server text is neutralized in Markdown, HTML, text and CSV (formula injection); JSON and XML keep it raw, so treat `message` as untrusted.
+- **The HTML report is interactive** and still a single offline file, with its CSS and JavaScript inline:
+  - **Search** endpoints, parameter names, messages and inputs (every word must match; tick `.*` for a regular expression; press `/` to focus it).
+  - **Filter** by HTTP method, status class (`2xx` … `5xx`, `ERR`) and minimum time; **sort** endpoints by name, requests, failure rate, 5xx, `ERR`, mean/p50/p95/p99/max time or tail ratio. Each results table sorts by any column and shows 100 rows at a time.
+  - **Insights** follow the filters: requests and throughput, 5xx and `ERR` counts, mean and worst p95 time, the status mix, and rankings of the slowest and fastest endpoints, the most 5xx, the most `ERR`, endpoints that never succeeded (auth or validation stopped every request), the longest tail (p99 / p50), the slowest single responses with their input, and the most frequent messages with ids and numbers folded together.
+  - The filters are kept in the URL after `#!`, so a reload keeps the view. Without JavaScript the page is the plain report. Its policy runs only that one script, pinned by its hash, and allows no requests.
 - `--incremental` also saves the report atomically at 10 checkpoints, so a killed run keeps its last one.
 
 ### Response Times 🐎
